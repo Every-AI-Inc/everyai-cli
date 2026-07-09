@@ -9,7 +9,7 @@ interface PolicyExplainOptions {
 }
 
 function emitCommand<T>(data: T, human: string, opts: PolicyExplainOptions): void {
-  if (opts.json) emit(data, { json: true });
+  if (opts.json) emit(data, { json: true, staging: opts.staging });
   else process.stdout.write(`${human}\n`);
 }
 

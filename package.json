@@ -5,11 +5,13 @@
   "description": "The agent-agnostic command-line surface for Every AI.",
   "type": "module",
   "bin": {
-    "every": "dist/index.js"
+    "every": "dist/index.js",
+    "everyai": "dist/index.js"
   },
   "files": [
     "dist",
-    "skills"
+    "skills",
+    "scripts/postinstall.mjs"
   ],
   "engines": {
     "node": ">=18"
@@ -23,6 +25,7 @@
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "postinstall": "node scripts/postinstall.mjs || exit 0",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {

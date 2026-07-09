@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { Command, CommanderError } from 'commander';
 import { pingCommand } from './commands/ping.js';
+import { docsCommand } from './commands/docs.js';
 import {
   authStatusCommand,
   loginCommand,
@@ -26,6 +27,7 @@ import { skillsInstallCommand, skillsListCommand } from './commands/skills.js';
 import { CliError } from './lib/errors.js';
 import { emit, emitError } from './lib/output.js';
 import { ExitCode } from './lib/exit-codes.js';
+import { runDefaultFirstRunMenu } from './lib/first-run.js';
 
 const pkg = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
@@ -48,6 +50,10 @@ program.configureOutput({
     if (jsonMode) commanderStdout += str;
     else process.stdout.write(str);
   },
+  writeErr(str) {
+    if (jsonMode) commanderStdout += str;
+    else process.stderr.write(str);
+  },
   outputError(str, write) {
     if (!jsonMode) write(str);
   },
@@ -67,6 +73,15 @@ withGlobalOptions(
 ).action(async (_options: unknown, command: Command) => {
   const opts = command.optsWithGlobals();
   await pingCommand({ json: opts.json, staging: opts.staging });
+});
+
+withGlobalOptions(
+  program
+    .command('docs')
+    .description('Print complete offline CLI docs for humans and agents'),
+).action(async (_options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await docsCommand(program, { json: opts.json, staging: opts.staging });
 });
 
 withGlobalOptions(
@@ -126,13 +141,15 @@ withGlobalOptions(
   toolsCommand
     .command('list')
     .description('List available MCP tools')
-    .option('--no-cache', 'bypass and rewrite the local tool registry cache'),
+    .option('--no-cache', 'bypass and rewrite the local tool registry cache')
+    .option('--filter <substr>', 'case-insensitive substring filter for name or description'),
 ).action(async (_options: unknown, command: Command) => {
   const opts = command.optsWithGlobals();
   await toolsListCommand({
     json: opts.json,
     staging: opts.staging,
     noCache: opts.noCache,
+    filter: opts.filter,
   });
 });
 
@@ -169,6 +186,15 @@ function withToolExecutionOptions(cmd: Command): Command {
     .option('--timeout <secs>', 'tool call timeout in seconds');
 }
 
+const TOOL_CALL_HELP = [
+  '',
+  'Fastest full-tool argument forms:',
+  '  every tool call <name> --arg key=value --arg count=2',
+  '  every tool call <name> --args -',
+  '  every tool call <name> --args file.json',
+  '',
+].join('\n');
+
 withGlobalOptions(
   withToolExecutionOptions(
     toolCommand
@@ -200,7 +226,14 @@ const invoiceCommand = withToolExecutionOptions(
       .description('Work with invoices')
       .addHelpText(
         'after',
-        '\nCreate invoices with line items using: every tool call create_invoice --args <file>\n',
+        [
+          '',
+          'Create invoices with line items fastest with:',
+          '  every tool call create_invoice --arg client_id=<id> --arg line_items=\'[{"description":"Work","quantity":1,"unit_price":100}]\'',
+          '  every tool call create_invoice --args -',
+          '  every tool call create_invoice --args file.json',
+          '',
+        ].join('\n'),
       ),
   ),
 );
@@ -252,7 +285,10 @@ withGlobalOptions(
 
 const dealCommand = withToolExecutionOptions(
   withGlobalOptions(
-    program.command('deal').description('Work with deals'),
+    program
+      .command('deal')
+      .description('Work with deals')
+      .addHelpText('after', TOOL_CALL_HELP),
   ),
 );
 
@@ -304,7 +340,10 @@ withGlobalOptions(
 
 const contactCommand = withToolExecutionOptions(
   withGlobalOptions(
-    program.command('contact').description('Work with contacts'),
+    program
+      .command('contact')
+      .description('Work with contacts')
+      .addHelpText('after', TOOL_CALL_HELP),
   ),
 );
 
@@ -396,7 +435,24 @@ function emitCommanderSuccess(err: CommanderError): void {
     return;
   }
 
-  emit({ help: commanderStdout.trimEnd() }, { json: true });
+  emit({ help: commanderStdout.trimEnd() || program.helpInformation().trimEnd() }, { json: true });
+}
+
+function isBareInvocation(): boolean {
+  return process.argv.slice(2).length === 0;
+}
+
+async function maybeRunFirstRunMenu(): Promise<boolean> {
+  if (!isBareInvocation() || jsonMode || !process.stdin.isTTY || !process.stdout.isTTY) {
+    return false;
+  }
+
+  await runDefaultFirstRunMenu({
+    staging: program.opts().staging,
+    showHelp: () => program.outputHelp(),
+    login: () => loginCommand({ staging: program.opts().staging }),
+  });
+  return true;
 }
 
 async function main(): Promise<void> {
@@ -407,6 +463,7 @@ async function main(): Promise<void> {
     await program.parseAsync(process.argv);
 
     if (program.args.length === 0) {
+      if (await maybeRunFirstRunMenu()) return;
       if (jsonMode) {
         emit({ help: program.helpInformation().trimEnd() }, { json: true });
       } else {

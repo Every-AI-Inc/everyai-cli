@@ -1,9 +1,9 @@
-import { resolveBaseUrl } from '../lib/config.js';
+import { environmentNameForBaseUrl, resolveBaseUrl } from '../lib/config.js';
 import { CliError } from '../lib/errors.js';
 import { ExitCode } from '../lib/exit-codes.js';
 import { mcpCall } from '../lib/mcp.js';
 import { loginFlow } from '../lib/auth/flow.js';
-import { decodeJwtClaims, JwtClaims } from '../lib/auth/jwt.js';
+import { decodeJwtClaims } from '../lib/auth/jwt.js';
 import {
   AuthStatus,
   createTokenStore,
@@ -12,6 +12,8 @@ import {
   getToken,
   resolveAuthTarget,
 } from '../lib/auth/tokens.js';
+import { fetchUserInfo, UserInfo } from '../lib/auth/userinfo.js';
+import { maybeShowSkillHint } from '../lib/hints.js';
 import { emit } from '../lib/output.js';
 
 const WHOAMI_TIMEOUT_MS = 10_000;
@@ -37,9 +39,15 @@ interface LogoutResult {
 
 interface WhoamiResult {
   authenticated: true;
+  user_id: string | null;
   subject: string | null;
   email: string | null;
+  name: string | null;
   org_id: string | null;
+  org_slug: string | null;
+  org_name: string | null;
+  environment: string;
+  base_url: string;
   tools: number;
 }
 
@@ -53,7 +61,7 @@ interface OrgResult {
 }
 
 function emitCommand<T>(data: T, human: string, opts: AuthCommandOptions): void {
-  if (opts.json) emit(data, { json: true });
+  if (opts.json) emit(data, { json: true, staging: opts.staging });
   else process.stdout.write(`${human}\n`);
 }
 
@@ -71,6 +79,25 @@ function loginHuman(data: LoginResult): string {
   return identity ? `Logged in as ${identity}` : 'Logged in';
 }
 
+function loginNextSteps(): string {
+  return [
+    'Next steps:',
+    '  every whoami',
+    '  every tools list',
+    '  every skills install claude|codex',
+  ].join('\n');
+}
+
+function emitLogin(data: LoginResult, opts: AuthCommandOptions): void {
+  const human = `${loginHuman(data)}\n${loginNextSteps()}`;
+  if (opts.json) {
+    emit(data, { json: true, staging: opts.staging });
+    process.stderr.write(`${loginNextSteps()}\n`);
+  } else {
+    process.stdout.write(`${human}\n`);
+  }
+}
+
 function statusHuman(status: AuthStatus): string {
   return [
     `Logged in: ${status.logged_in ? 'yes' : 'no'}`,
@@ -84,34 +111,35 @@ function statusHuman(status: AuthStatus): string {
   ].join('\n');
 }
 
-function orgFromClaims(claims: JwtClaims | null): OrgResult {
+function orgFromUserInfo(userinfo: UserInfo): OrgResult {
   return {
-    org_id: typeof claims?.org_id === 'string' ? claims.org_id : null,
-    org_slug: typeof claims?.org_slug === 'string' ? claims.org_slug : null,
-    org_name: typeof claims?.org_name === 'string' ? claims.org_name : null,
-    organization_id:
-      typeof claims?.organization_id === 'string' ? claims.organization_id : null,
-    organization_slug:
-      typeof claims?.organization_slug === 'string' ? claims.organization_slug : null,
-    organization_name:
-      typeof claims?.organization_name === 'string' ? claims.organization_name : null,
+    org_id: userinfo.org_id,
+    org_slug: userinfo.org_slug,
+    org_name: userinfo.org_name,
+    organization_id: userinfo.org_id,
+    organization_slug: userinfo.org_slug,
+    organization_name: userinfo.org_name,
   };
 }
 
 function orgHuman(org: OrgResult): string {
   const lines = [
-    `org_id: ${org.org_id ?? 'none'}`,
-    `org_slug: ${org.org_slug ?? 'none'}`,
-    `org_name: ${org.org_name ?? 'none'}`,
+    `Org: ${formatOrg(org.org_name, org.org_id)}`,
+    `Slug: ${org.org_slug ?? 'none'}`,
+    'Note: the server scopes writes to this org.',
   ];
 
-  if (org.organization_id || org.organization_slug || org.organization_name) {
-    lines.push(`organization_id: ${org.organization_id ?? 'none'}`);
-    lines.push(`organization_slug: ${org.organization_slug ?? 'none'}`);
-    lines.push(`organization_name: ${org.organization_name ?? 'none'}`);
-  }
-
   return lines.join('\n');
+}
+
+function formatUser(userinfo: UserInfo): string {
+  if (userinfo.name && userinfo.email) return `${userinfo.name} (${userinfo.email})`;
+  return userinfo.name ?? userinfo.email ?? userinfo.user_id ?? 'unknown';
+}
+
+function formatOrg(orgName: string | null, orgId: string | null): string {
+  if (orgName && orgId) return `${orgName} (${orgId})`;
+  return orgName ?? orgId ?? 'none';
 }
 
 async function verifyMcpLiveness(
@@ -142,7 +170,7 @@ export async function loginCommand(opts: AuthCommandOptions = {}): Promise<void>
       storage_backend: null,
       every_token: true,
     };
-    emitCommand(data, loginHuman(data), opts);
+    emitLogin(data, opts);
     return;
   }
 
@@ -175,7 +203,7 @@ export async function loginCommand(opts: AuthCommandOptions = {}): Promise<void>
     storage_backend: store.backend,
     every_token: false,
   };
-  emitCommand(data, loginHuman(data), opts);
+  emitLogin(data, opts);
 }
 
 export async function logoutCommand(opts: AuthCommandOptions = {}): Promise<void> {
@@ -196,37 +224,40 @@ export async function authStatusCommand(opts: AuthCommandOptions = {}): Promise<
 
 export async function whoamiCommand(opts: AuthCommandOptions = {}): Promise<void> {
   const baseUrl = resolveBaseUrl({ staging: opts.staging });
+  const userinfo = await fetchUserInfo({ baseUrl });
   const token = await getToken({ baseUrl });
-  const claims = decodeJwtClaims(token);
   const liveness = await verifyMcpLiveness(baseUrl, token);
+  const environment = environmentNameForBaseUrl(baseUrl);
   const data: WhoamiResult = {
     authenticated: liveness.authenticated,
-    subject: claims?.sub ?? null,
-    email: claims?.email ?? null,
-    org_id:
-      typeof claims?.org_id === 'string'
-        ? claims.org_id
-        : typeof claims?.organization_id === 'string'
-          ? claims.organization_id
-          : null,
+    user_id: userinfo.user_id,
+    subject: userinfo.user_id,
+    email: userinfo.email,
+    name: userinfo.name,
+    org_id: userinfo.org_id,
+    org_slug: userinfo.org_slug,
+    org_name: userinfo.org_name,
+    environment,
+    base_url: baseUrl,
     tools: liveness.tools,
   };
 
-  const identity = data.email ?? data.subject ?? 'unknown';
   emitCommand(
     data,
     [
       `Authenticated: yes`,
-      `User: ${identity}`,
-      `Org: ${data.org_id ?? 'none'}`,
+      `User: ${formatUser(userinfo)}`,
+      `Org: ${formatOrg(userinfo.org_name, userinfo.org_id)}`,
+      `Environment: ${environment} (${baseUrl})`,
       `Tools: ${data.tools}`,
     ].join('\n'),
     opts,
   );
+  await maybeShowSkillHint();
 }
 
 export async function orgCommand(opts: AuthCommandOptions = {}): Promise<void> {
-  const token = await getToken({ staging: opts.staging });
-  const org = orgFromClaims(decodeJwtClaims(token));
+  const baseUrl = resolveBaseUrl({ staging: opts.staging });
+  const org = orgFromUserInfo(await fetchUserInfo({ baseUrl }));
   emitCommand(org, orgHuman(org), opts);
 }

@@ -208,27 +208,30 @@ export function requirementDescription(level: PolicyLevel): RequirementDescripti
   };
 }
 
-function confirmationPrompt(level: PolicyLevel): string {
+function confirmationPrompt(level: PolicyLevel, target?: string): string {
+  const targetText = target ? ` Target: ${target}.` : '';
   if (level === 'ai-mediated') {
-    return `${aiMediatedExplanation()}\nContinue? [y/N] `;
+    return `${aiMediatedExplanation()}${targetText}\nContinue? [y/N] `;
   }
 
-  return 'This tool can modify your Every account. Continue? [y/N] ';
+  return `This tool can modify your Every account.${targetText} Continue? [y/N] `;
 }
 
 export async function promptForTool(
   toolName: string,
   level: PolicyLevel,
   prompt: 'confirm' | 'typed',
+  target?: string,
 ): Promise<boolean> {
   const rl = createInterface({ input: process.stdin, output: process.stderr });
   try {
     if (prompt === 'confirm') {
-      const answer = await rl.question(confirmationPrompt(level));
+      const answer = await rl.question(confirmationPrompt(level, target));
       return answer.trim().toLowerCase() === 'y' || answer.trim().toLowerCase() === 'yes';
     }
 
-    const answer = await rl.question(`Type ${toolName} to confirm: `);
+    const targetText = target ? ` for ${target}` : '';
+    const answer = await rl.question(`Type ${toolName} to confirm${targetText}: `);
     return answer.trim() === toolName;
   } finally {
     rl.close();

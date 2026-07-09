@@ -71,6 +71,6 @@ export async function pingCommand(opts: PingOptions = {}): Promise<void> {
       service: body.service ?? null,
       base_url: baseUrl,
     },
-    { json: opts.json },
+    { json: opts.json, baseUrl },
   );
 }

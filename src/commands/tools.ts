@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { resolveBaseUrl } from '../lib/config.js';
+import { environmentNameForBaseUrl, resolveBaseUrl } from '../lib/config.js';
 import { CliError } from '../lib/errors.js';
 import { ExitCode } from '../lib/exit-codes.js';
 import { callTool, listTools, McpTool } from '../lib/mcp.js';
@@ -12,6 +12,8 @@ import {
   requirementFor,
 } from '../lib/policy.js';
 import { getToken } from '../lib/auth/tokens.js';
+import { fetchUserInfo, UserInfo } from '../lib/auth/userinfo.js';
+import { maybeShowSkillHint } from '../lib/hints.js';
 
 interface BaseCommandOptions {
   json?: boolean;
@@ -20,6 +22,7 @@ interface BaseCommandOptions {
 
 export interface ToolsListOptions extends BaseCommandOptions {
   noCache?: boolean;
+  filter?: string;
 }
 
 export interface ToolsDescribeOptions extends BaseCommandOptions {
@@ -42,7 +45,7 @@ type ArgsFactory = () => Promise<Record<string, unknown>>;
 export type ToolExecutionOptions = Omit<ToolCallOptions, 'args' | 'arg'>;
 
 function emitCommand<T>(data: T, human: string, opts: BaseCommandOptions): void {
-  if (opts.json) emit(data, { json: true });
+  if (opts.json) emit(data, { json: true, staging: opts.staging });
   else process.stdout.write(`${human}\n`);
 }
 
@@ -113,6 +116,13 @@ function describeHuman(tool: ClassifiedTool): string {
   if (tool.description) lines.push('', 'Description:', String(tool.description).trim());
 
   lines.push('', 'Input schema:', JSON.stringify(tool.inputSchema ?? {}, null, 2));
+  lines.push(
+    '',
+    'Fastest argument forms:',
+    `  every tool call ${tool.name} --arg key=value --arg other='{"json":true}'`,
+    `  every tool call ${tool.name} --args -`,
+    `  every tool call ${tool.name} --args file.json`,
+  );
   return lines.join('\n');
 }
 
@@ -123,8 +133,18 @@ async function resolveTools(opts: ToolsListOptions): Promise<McpTool[]> {
 }
 
 export async function toolsListCommand(opts: ToolsListOptions = {}): Promise<void> {
-  const tools = (await resolveTools(opts)).map(withClassification);
+  const filter = opts.filter?.toLowerCase();
+  const tools = (await resolveTools(opts))
+    .filter((tool) => {
+      if (!filter) return true;
+      return (
+        tool.name.toLowerCase().includes(filter) ||
+        compactText(tool.description).toLowerCase().includes(filter)
+      );
+    })
+    .map(withClassification);
   emitCommand(tools, toolsListHuman(tools), opts);
+  await maybeShowSkillHint();
 }
 
 export async function toolsDescribeCommand(
@@ -143,6 +163,7 @@ export async function toolsDescribeCommand(
     describeHuman(tool),
     opts,
   );
+  await maybeShowSkillHint();
 }
 
 async function readStdin(): Promise<string> {
@@ -238,6 +259,32 @@ function toolCallHuman(result: {
   return parts.join('\n');
 }
 
+function orgLabel(userinfo: UserInfo | undefined): { org_id: string | null; org_name: string | null } {
+  return {
+    org_id: userinfo?.org_id ?? null,
+    org_name: userinfo?.org_name ?? null,
+  };
+}
+
+function targetLabel(
+  userinfo: UserInfo | undefined,
+  environment: string,
+): string {
+  const orgName = userinfo?.org_name ?? 'unknown org';
+  const orgId = userinfo?.org_id ?? 'unknown';
+  return `${orgName} (${orgId}) · ${environment}`;
+}
+
+async function resolveWriteTarget(baseUrl: string): Promise<UserInfo | undefined> {
+  try {
+    return await fetchUserInfo({ baseUrl });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`Warning: could not verify target org: ${message}\n`);
+    return undefined;
+  }
+}
+
 export async function executeToolCall(
   name: string,
   opts: ToolExecutionOptions = {},
@@ -261,11 +308,20 @@ export async function executeToolCall(
     throw new CliError(requirement.denialMessage ?? 'Tool call denied by policy.', ExitCode.PERMISSION, 'permission');
   }
 
+  const gated = classification.level !== 'read';
+  const environment = environmentNameForBaseUrl(baseUrl);
+  const userinfo = gated ? await resolveWriteTarget(baseUrl) : undefined;
+  const target = gated ? targetLabel(userinfo, environment) : undefined;
+
   if (requirement.prompt) {
-    const confirmed = await promptForTool(name, classification.level, requirement.prompt);
+    const confirmed = await promptForTool(name, classification.level, requirement.prompt, target);
     if (!confirmed) {
       throw new CliError('Tool call cancelled.', ExitCode.PERMISSION, 'permission');
     }
+  }
+
+  if (gated && !opts.json && target) {
+    process.stderr.write(`→ ${target}\n`);
   }
 
   const args = await argsFactory();
@@ -275,6 +331,7 @@ export async function executeToolCall(
     is_error: result.isError,
     content: result.content,
     structured_content: result.structuredContent,
+    ...(gated ? { org: orgLabel(userinfo) } : {}),
   };
 
   if (result.isError) {
@@ -283,6 +340,7 @@ export async function executeToolCall(
   }
 
   emitCommand(data, toolCallHuman(data), opts);
+  await maybeShowSkillHint();
 }
 
 export async function toolCallCommand(

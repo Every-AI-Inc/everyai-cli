@@ -21,6 +21,7 @@ Always pass `--json`. Parse the envelope every time:
 
 - `ok: true` means read `data`.
 - `ok: false` means read `error.code` and `error.message`.
+- `env` tells you whether the command targeted `production`, `staging`, or `custom`.
 - `schema_version` must be present and understood before automating against the response.
 
 Check process exit codes:
@@ -40,6 +41,7 @@ Never infer or guess IDs. List first, then act only with the exact ID shown in t
 Use these commands to discover current tools and policy:
 
 ```bash
+every docs
 every tools list --json
 every tools describe <name> --json
 every policy explain <name> --json
@@ -52,6 +54,8 @@ Run read tools freely.
 For WRITE tools, add `--yes` only when the human user explicitly asked for the change.
 
 For DESTRUCTIVE tools, including sends, deletes, voids, and payments, add both `--yes` and `--allow-destructive` only when the human user explicitly asked for that external or irreversible action. Never add `--allow-destructive` unprompted.
+
+`every whoami --json` reports the authenticated user, org, environment, base URL, and tool count. Write results echo the target org so you can confirm the blast radius before trusting the result.
 
 In automation, prefer `--read-only` unless writes were requested.
 
@@ -76,7 +80,7 @@ Invoice flow:
 
 ```bash
 every invoice list --status overdue --json
-every tool call create_invoice --args invoice.json --yes --json
+every tool call create_invoice --arg client_id=<id> --arg line_items='[{"description":"Work","quantity":1,"unit_price":100}]' --yes --json
 every invoice send <id> --yes --allow-destructive --json
 ```
 

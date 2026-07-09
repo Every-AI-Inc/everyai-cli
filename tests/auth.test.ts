@@ -16,6 +16,10 @@ import {
   KeyringStore,
   StoredTokenSet,
 } from '../src/lib/auth/tokens';
+import {
+  fetchUserInfo,
+  userInfoCacheFileMode,
+} from '../src/lib/auth/userinfo';
 import { ExitCode } from '../src/lib/exit-codes';
 
 const ORIGINAL_ENV = {
@@ -54,6 +58,8 @@ interface MockOAuthServer {
   registrations: Array<Record<string, unknown>>;
   tokenRequests: URLSearchParams[];
   discoveryRequests: string[];
+  openidRequests: string[];
+  userinfoRequests: string[];
   close(): Promise<void>;
 }
 
@@ -64,10 +70,14 @@ interface MockResponse {
 
 let fallbackPort = 32_000;
 
-async function createMockOAuthServer(): Promise<MockOAuthServer> {
+async function createMockOAuthServer(
+  opts: { userinfoStatus?: number } = {},
+): Promise<MockOAuthServer> {
   const registrations: Array<Record<string, unknown>> = [];
   const tokenRequests: URLSearchParams[] = [];
   const discoveryRequests: string[] = [];
+  const openidRequests: string[] = [];
+  const userinfoRequests: string[] = [];
   let baseUrl = '';
 
   function handleMockRequest(
@@ -95,6 +105,39 @@ async function createMockOAuthServer(): Promise<MockOAuthServer> {
           code_challenge_methods_supported: ['S256'],
           token_endpoint_auth_methods_supported: ['none'],
           scopes_supported: ['openid', 'profile', 'email', 'offline_access', 'user:org:read'],
+        },
+      };
+    }
+
+    if (method === 'GET' && pathname === '/.well-known/openid-configuration') {
+      openidRequests.push(pathname);
+      return { status: 200, body: { userinfo_endpoint: `${baseUrl}/oauth/userinfo` } };
+    }
+
+    if (method === 'GET' && pathname === '/oauth/userinfo') {
+      userinfoRequests.push(pathname);
+      if (opts.userinfoStatus && opts.userinfoStatus !== 200) {
+        return { status: opts.userinfoStatus, body: { error: 'userinfo failed' } };
+      }
+      if (headers.authorization !== 'Bearer live-token') {
+        return { status: 401, body: { error: 'unauthorized' } };
+      }
+
+      return {
+        status: 200,
+        body: {
+          user_id: 'user_123',
+          sub: 'user_123',
+          email: 'person@example.com',
+          email_verified: true,
+          name: 'Person Example',
+          given_name: 'Person',
+          family_name: 'Example',
+          org_id: 'org_123',
+          org_slug: 'acme',
+          org_name: 'Acme Co',
+          picture: null,
+          instance_id: 'inst_123',
         },
       };
     }
@@ -194,6 +237,8 @@ async function createMockOAuthServer(): Promise<MockOAuthServer> {
       registrations,
       tokenRequests,
       discoveryRequests,
+      openidRequests,
+      userinfoRequests,
       close: () =>
         new Promise<void>((resolve) => {
           server.close(() => resolve());
@@ -238,6 +283,8 @@ async function createMockOAuthServer(): Promise<MockOAuthServer> {
       registrations,
       tokenRequests,
       discoveryRequests,
+      openidRequests,
+      userinfoRequests,
       close: async () => {
         globalThis.fetch = originalFetch;
       },
@@ -319,6 +366,75 @@ describe('auth discovery and DCR', () => {
         response_types: ['code'],
         token_endpoint_auth_method: 'none',
         scope: 'openid profile email offline_access user:org:read',
+      });
+    } finally {
+      await server.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('userinfo', () => {
+  it('fetches Clerk userinfo through OpenID configuration and honors the disk cache TTL', async () => {
+    const server = await createMockOAuthServer();
+    const dir = await tempDir();
+    process.env.EVERY_CONFIG_DIR = dir;
+    process.env.EVERYAI_FORCE_FILE_STORE = '1';
+
+    try {
+      const environmentKey = environmentKeyForBaseUrl(server.baseUrl);
+      const store = new FileStore(path.join(dir, 'tokens.json'));
+      await store.set(
+        environmentKey,
+        freshToken({
+          issuer: server.baseUrl,
+          access_token: 'live-token',
+        }),
+      );
+
+      await expect(fetchUserInfo({ baseUrl: server.baseUrl, store })).resolves.toEqual({
+        user_id: 'user_123',
+        email: 'person@example.com',
+        name: 'Person Example',
+        org_id: 'org_123',
+        org_slug: 'acme',
+        org_name: 'Acme Co',
+      });
+      await expect(fetchUserInfo({ baseUrl: server.baseUrl, store })).resolves.toMatchObject({
+        user_id: 'user_123',
+        org_id: 'org_123',
+      });
+
+      expect(server.openidRequests).toEqual(['/.well-known/openid-configuration']);
+      expect(server.userinfoRequests).toEqual(['/oauth/userinfo']);
+      expect(await userInfoCacheFileMode(server.baseUrl)).toBe(0o600);
+    } finally {
+      await server.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('maps userinfo 401 to the auth exit contract', async () => {
+    const server = await createMockOAuthServer({ userinfoStatus: 401 });
+    const dir = await tempDir();
+    process.env.EVERY_CONFIG_DIR = dir;
+
+    try {
+      const environmentKey = environmentKeyForBaseUrl(server.baseUrl);
+      const store = new FileStore(path.join(dir, 'tokens.json'));
+      await store.set(
+        environmentKey,
+        freshToken({
+          issuer: server.baseUrl,
+          access_token: 'live-token',
+        }),
+      );
+
+      await expect(
+        fetchUserInfo({ baseUrl: server.baseUrl, store, forceRefresh: true }),
+      ).rejects.toMatchObject({
+        exitCode: ExitCode.AUTH,
+        code: 'auth',
       });
     } finally {
       await server.close();

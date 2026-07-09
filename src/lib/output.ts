@@ -2,36 +2,66 @@
  * Stable output envelope for the `every` CLI.
  *
  * `--json` mode is a CLI CONTRACT that agents and scripts parse. Rules:
- *  - Success: `{ ok: true,  data,  schema_version: 1 }`
- *  - Failure: `{ ok: false, error: { message, code }, schema_version: 1 }`
+ *  - Success: `{ ok: true,  data,  env, schema_version: 1 }`
+ *  - Failure: `{ ok: false, error: { message, code }, env, schema_version: 1 }`
  *  - In `--json` mode the ONLY thing written is a single JSON object — never
  *    mix human prose into machine output.
  */
+
+import {
+  EnvironmentName,
+  environmentNameForBaseUrl,
+  resolveBaseUrl,
+} from './config.js';
 
 export const SCHEMA_VERSION = 1 as const;
 
 export interface EmitOptions {
   json?: boolean;
+  staging?: boolean;
+  baseUrl?: string;
+  env?: EnvironmentName;
 }
 
 export interface SuccessEnvelope<T> {
   ok: true;
   data: T;
+  env: EnvironmentName;
   schema_version: typeof SCHEMA_VERSION;
 }
 
 export interface ErrorEnvelope {
   ok: false;
   error: { message: string; code: string };
+  env: EnvironmentName;
   schema_version: typeof SCHEMA_VERSION;
 }
 
-export function successEnvelope<T>(data: T): SuccessEnvelope<T> {
-  return { ok: true, data, schema_version: SCHEMA_VERSION };
+function hasStagingArg(): boolean {
+  return process.argv.includes('--staging');
 }
 
-export function errorEnvelope(message: string, code: string): ErrorEnvelope {
-  return { ok: false, error: { message, code }, schema_version: SCHEMA_VERSION };
+function envelopeEnv(opts: EmitOptions = {}): EnvironmentName {
+  if (opts.env) return opts.env;
+  const baseUrl = opts.baseUrl ?? resolveBaseUrl({ staging: opts.staging ?? hasStagingArg() });
+  return environmentNameForBaseUrl(baseUrl);
+}
+
+export function successEnvelope<T>(data: T, opts: EmitOptions = {}): SuccessEnvelope<T> {
+  return { ok: true, data, env: envelopeEnv(opts), schema_version: SCHEMA_VERSION };
+}
+
+export function errorEnvelope(
+  message: string,
+  code: string,
+  opts: EmitOptions = {},
+): ErrorEnvelope {
+  return {
+    ok: false,
+    error: { message, code },
+    env: envelopeEnv(opts),
+    schema_version: SCHEMA_VERSION,
+  };
 }
 
 function humanize(data: unknown): string {
@@ -45,13 +75,13 @@ function humanize(data: unknown): string {
 
 /** Render a success result as a string (pure JSON when `json`, else human text). */
 export function formatSuccess<T>(data: T, opts: EmitOptions = {}): string {
-  if (opts.json) return JSON.stringify(successEnvelope(data));
+  if (opts.json) return JSON.stringify(successEnvelope(data, opts));
   return humanize(data);
 }
 
 /** Render an error as a string (pure JSON when `json`, else human text). */
 export function formatError(message: string, code: string, opts: EmitOptions = {}): string {
-  if (opts.json) return JSON.stringify(errorEnvelope(message, code));
+  if (opts.json) return JSON.stringify(errorEnvelope(message, code, opts));
   return `Error: ${message}`;
 }
 

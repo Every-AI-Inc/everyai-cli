@@ -27,11 +27,17 @@ const tools = [
 ];
 
 function readState() {
-  if (!stateFile) return { listCalls: 0, toolCalls: [] };
+  if (!stateFile) return { listCalls: 0, toolCalls: [], openidCalls: 0, userinfoCalls: 0 };
   try {
-    return JSON.parse(readFileSync(stateFile, 'utf8'));
+    return {
+      listCalls: 0,
+      toolCalls: [],
+      openidCalls: 0,
+      userinfoCalls: 0,
+      ...JSON.parse(readFileSync(stateFile, 'utf8')),
+    };
   } catch {
-    return { listCalls: 0, toolCalls: [] };
+    return { listCalls: 0, toolCalls: [], openidCalls: 0, userinfoCalls: 0 };
   }
 }
 
@@ -55,6 +61,57 @@ if (enabled && stateFile) {
     );
 
     if (url.origin !== targetOrigin) return originalFetch(input, init);
+    const method = init.method ?? 'GET';
+
+    if (method === 'GET' && url.pathname === '/.well-known/oauth-protected-resource') {
+      return response({ authorization_servers: [baseUrl] });
+    }
+
+    if (method === 'GET' && url.pathname === '/.well-known/oauth-authorization-server') {
+      return response({
+        issuer: baseUrl,
+        authorization_endpoint: `${baseUrl}/authorize`,
+        token_endpoint: `${baseUrl}/oauth/token`,
+        registration_endpoint: `${baseUrl}/oauth/register`,
+      });
+    }
+
+    if (method === 'GET' && url.pathname === '/.well-known/openid-configuration') {
+      const state = readState();
+      state.openidCalls += 1;
+      writeState(state);
+      return response({ userinfo_endpoint: `${baseUrl}/oauth/userinfo` });
+    }
+
+    if (method === 'GET' && url.pathname === '/oauth/userinfo') {
+      const state = readState();
+      state.userinfoCalls += 1;
+      writeState(state);
+
+      const status = Number(process.env.EVERYAI_MOCK_USERINFO_STATUS ?? '200');
+      if (status !== 200) return response({ error: 'userinfo failed' }, status);
+
+      const headers = new Headers(init.headers);
+      if (headers.get('authorization') !== 'Bearer test-token') {
+        return response({ error: 'unauthorized' }, 401);
+      }
+
+      return response({
+        user_id: 'user_123',
+        sub: 'user_123',
+        email: 'person@example.com',
+        email_verified: true,
+        name: 'Person Example',
+        given_name: 'Person',
+        family_name: 'Example',
+        org_id: 'org_123',
+        org_slug: 'acme',
+        org_name: 'Acme Co',
+        picture: null,
+        instance_id: 'inst_123',
+      });
+    }
+
     if ((init.method ?? 'GET') !== 'POST' || url.pathname !== '/') {
       return response({ error: 'not found' }, 404);
     }

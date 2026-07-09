@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -20,10 +20,11 @@ function runCli(
   args: string[],
   env: NodeJS.ProcessEnv = {},
   timeoutMs = 5_000,
+  cwd = repoRoot,
 ): Promise<CliResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ['--import', 'tsx', entrypoint, ...args], {
-      cwd: repoRoot,
+      cwd,
       env: { ...process.env, NO_COLOR: '1', ...env },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -33,6 +34,40 @@ function runCli(
     const timeout = setTimeout(() => {
       child.kill('SIGKILL');
       reject(new Error(`CLI did not exit within ${timeoutMs}ms: ${args.join(' ')}`));
+    }, timeoutMs);
+
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk;
+    });
+    child.on('error', (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timeout);
+      resolve({ code, stdout, stderr });
+    });
+  });
+}
+
+function runNode(args: string[], timeoutMs = 5_000): Promise<CliResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, args, {
+      cwd: repoRoot,
+      env: { ...process.env, NO_COLOR: '1' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+    const timeout = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error(`node did not exit within ${timeoutMs}ms: ${args.join(' ')}`));
     }, timeoutMs);
 
     child.stdout.setEncoding('utf8');
@@ -64,6 +99,8 @@ interface MockMcpServer {
   baseUrl: string;
   stateFile: string;
   listCalls: number;
+  openidCalls: number;
+  userinfoCalls: number;
   toolCalls: Array<{ name: string; arguments: Record<string, unknown> }>;
   clearToolCalls(): void;
   close(): Promise<void>;
@@ -71,6 +108,8 @@ interface MockMcpServer {
 
 interface MockState {
   listCalls: number;
+  openidCalls: number;
+  userinfoCalls: number;
   toolCalls: Array<{ name: string; arguments: Record<string, unknown> }>;
 }
 
@@ -85,13 +124,24 @@ function writeMockState(filePath: string, state: MockState): void {
 async function createMockMcpServer(): Promise<MockMcpServer> {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'everyai-cli-mcp-spawn-'));
   const stateFile = path.join(dir, 'state.json');
-  writeMockState(stateFile, { listCalls: 0, toolCalls: [] });
+  writeMockState(stateFile, {
+    listCalls: 0,
+    openidCalls: 0,
+    userinfoCalls: 0,
+    toolCalls: [],
+  });
 
   return {
     baseUrl: 'https://mock-mcp.everyai.test',
     stateFile,
     get listCalls() {
       return readMockState(stateFile).listCalls;
+    },
+    get openidCalls() {
+      return readMockState(stateFile).openidCalls;
+    },
+    get userinfoCalls() {
+      return readMockState(stateFile).userinfoCalls;
     },
     get toolCalls() {
       return readMockState(stateFile).toolCalls;
@@ -141,6 +191,7 @@ describe('CLI contract', () => {
     expect(parsed).toMatchObject({
       ok: false,
       error: { code: 'usage' },
+      env: 'production',
       schema_version: 1,
     });
     expect(JSON.stringify(parsed)).not.toContain('Error:');
@@ -154,6 +205,7 @@ describe('CLI contract', () => {
     expect(parseJsonStdout(result.stdout)).toMatchObject({
       ok: false,
       error: { code: 'usage' },
+      env: 'production',
       schema_version: 1,
     });
   });
@@ -171,6 +223,7 @@ describe('CLI contract', () => {
     expect(parseJsonStdout(result.stdout)).toEqual({
       ok: true,
       data: { version: pkgVersion },
+      env: 'production',
       schema_version: 1,
     });
   });
@@ -181,8 +234,64 @@ describe('CLI contract', () => {
     expect(result.code).toBe(0);
     expect(result.stderr).toBe('');
     const parsed = parseJsonStdout(result.stdout);
-    expect(parsed).toMatchObject({ ok: true, schema_version: 1 });
+    expect(parsed).toMatchObject({ ok: true, env: 'production', schema_version: 1 });
     expect((parsed.data as { help: string }).help).toContain('Usage: every');
+  });
+
+  it('keeps non-TTY bare invocation on the plain help path', async () => {
+    const result = await runCli([]);
+
+    expect(result.code).toBe(0);
+    const output = result.stdout + result.stderr;
+    expect(output).toContain('Usage: every');
+    expect(output).not.toContain('Welcome to Every AI');
+  });
+
+  it('keeps --json bare invocation on the help envelope path', async () => {
+    const result = await runCli(['--json']);
+
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+    const parsed = parseJsonStdout(result.stdout);
+    expect(parsed).toMatchObject({ ok: true, env: 'production', schema_version: 1 });
+    expect((parsed.data as { help: string }).help).toContain('Usage: every');
+  });
+
+  it('prints offline docs with conventions and bundled workflows', async () => {
+    const human = await runCli(['docs']);
+    expect(human.code).toBe(0);
+    expect(human.stderr).toBe('');
+    expect(human.stdout).toContain('Exit codes:');
+    expect(human.stdout).toContain('every tool call <name> --arg k=v');
+    expect(human.stdout).toContain('Invoice flow:');
+
+    const json = await runCli(['docs', '--json']);
+    expect(json.code).toBe(0);
+    expect(json.stderr).toBe('');
+    const parsed = parseJsonStdout(json.stdout);
+    expect(parsed).toMatchObject({ ok: true, env: 'production' });
+    expect((parsed.data as { commands: string }).commands).toContain('every tools list');
+    expect((parsed.data as { conventions: string }).conventions).toContain('--staging');
+    expect((parsed.data as { workflows: string }).workflows).toContain('Invoice flow:');
+  });
+
+  it('postinstall exits 0 and prints the binary name', async () => {
+    const result = await runNode(['scripts/postinstall.mjs']);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('every');
+    expect(result.stdout).toContain('everyai');
+  });
+
+  it('package.json exposes both every and everyai bins', () => {
+    const pkgJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      bin: Record<string, string>;
+    };
+
+    expect(pkgJson.bin).toMatchObject({
+      every: 'dist/index.js',
+      everyai: 'dist/index.js',
+    });
   });
 
   it('emits auth status through the JSON envelope without requiring login', async () => {
@@ -198,6 +307,7 @@ describe('CLI contract', () => {
       expect(result.stderr).toBe('');
       expect(parseJsonStdout(result.stdout)).toMatchObject({
         ok: true,
+        env: 'production',
         data: {
           logged_in: false,
           storage_backend: 'file',
@@ -223,6 +333,7 @@ describe('CLI contract', () => {
       expect(result.stderr).toBe('');
       expect(parseJsonStdout(result.stdout)).toMatchObject({
         ok: false,
+        env: 'production',
         error: {
           code: 'auth',
           message: 'login requires a browser; set EVERY_TOKEN for headless use',
@@ -231,6 +342,178 @@ describe('CLI contract', () => {
       });
     } finally {
       await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('whoami reports userinfo identity, org, environment, and tool count', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli(['whoami', '--json'], mockEnv(server, configDir));
+
+      expect(result.code).toBe(0);
+      expect(result.stderr).toContain('Tip: teach your coding agent this CLI');
+      expect(parseJsonStdout(result.stdout)).toMatchObject({
+        ok: true,
+        env: 'custom',
+        data: {
+          authenticated: true,
+          user_id: 'user_123',
+          subject: 'user_123',
+          email: 'person@example.com',
+          name: 'Person Example',
+          org_id: 'org_123',
+          org_slug: 'acme',
+          org_name: 'Acme Co',
+          environment: 'custom',
+          base_url: server.baseUrl,
+          tools: expect.any(Number),
+        },
+      });
+      expect(server.userinfoCalls).toBe(1);
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('org reports the userinfo org and keeps legacy organization fields', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli(['org', '--json'], mockEnv(server, configDir));
+
+      expect(result.code).toBe(0);
+      expect(result.stderr).toBe('');
+      expect(parseJsonStdout(result.stdout)).toMatchObject({
+        ok: true,
+        env: 'custom',
+        data: {
+          org_id: 'org_123',
+          org_slug: 'acme',
+          org_name: 'Acme Co',
+          organization_id: 'org_123',
+          organization_slug: 'acme',
+          organization_name: 'Acme Co',
+        },
+      });
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('whoami uses the userinfo cache on a second call inside the TTL', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const first = await runCli(['whoami', '--json'], mockEnv(server, configDir));
+      const second = await runCli(['whoami', '--json'], mockEnv(server, configDir));
+
+      expect(first.code).toBe(0);
+      expect(second.code).toBe(0);
+      expect(server.userinfoCalls).toBe(1);
+      expect(server.openidCalls).toBe(1);
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('whoami maps userinfo 401 to exit 3', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli(
+        ['whoami', '--json'],
+        mockEnv(server, configDir, { EVERYAI_MOCK_USERINFO_STATUS: '401' }),
+      );
+
+      expect(result.code).toBe(3);
+      expect(result.stderr).toBe('');
+      expect(parseJsonStdout(result.stdout)).toMatchObject({
+        ok: false,
+        env: 'custom',
+        error: { code: 'auth' },
+      });
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('filters tools list by name or description in JSON mode', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli(
+        ['tools', 'list', '--filter', 'invoice', '--json'],
+        mockEnv(server, configDir),
+      );
+
+      expect(result.code).toBe(0);
+      expect(result.stderr).toContain('Tip: teach your coding agent this CLI');
+      const parsed = parseJsonStdout(result.stdout);
+      expect(parsed).toMatchObject({ ok: true, env: 'custom' });
+      const tools = parsed.data as Array<{ name: string; description?: string }>;
+      expect(tools.length).toBeGreaterThan(0);
+      expect(tools.every((tool) => {
+        const haystack = `${tool.name} ${tool.description ?? ''}`.toLowerCase();
+        return haystack.includes('invoice');
+      })).toBe(true);
+      expect(server.userinfoCalls).toBe(0);
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('shows the coding-agent skill hint once and writes the marker', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const first = await runCli(['tools', 'list', '--json'], mockEnv(server, configDir));
+      const second = await runCli(['tools', 'list', '--json'], mockEnv(server, configDir));
+
+      expect(first.code).toBe(0);
+      expect(second.code).toBe(0);
+      expect(first.stderr).toContain('Tip: teach your coding agent this CLI');
+      expect(second.stderr).toBe('');
+      expect(parseJsonStdout(first.stdout)).toMatchObject({ ok: true });
+      expect(JSON.parse(readFileSync(path.join(configDir, 'hints.json'), 'utf8'))).toMatchObject({
+        skill_hint_shown: true,
+      });
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('suppresses the skill hint when the local Claude skill already exists', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    const claudeRoot = path.join(repoRoot, '.claude');
+    const skillsRoot = path.join(claudeRoot, 'skills');
+    const skillDir = path.join(skillsRoot, 'use-every');
+    const hadClaudeRoot = existsSync(claudeRoot);
+    const hadSkillsRoot = existsSync(skillsRoot);
+    const hadSkillDir = existsSync(skillDir);
+    try {
+      await mkdir(skillDir, { recursive: true });
+      const result = await runCli(
+        ['tools', 'list', '--json'],
+        mockEnv(server, configDir),
+      );
+
+      expect(result.code).toBe(0);
+      expect(result.stderr).toBe('');
+      expect(parseJsonStdout(result.stdout)).toMatchObject({ ok: true, env: 'custom' });
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+      if (!hadSkillDir) await rm(skillDir, { recursive: true, force: true });
+      if (!hadSkillsRoot) await rm(skillsRoot, { recursive: true, force: true });
+      if (!hadClaudeRoot) await rm(claudeRoot, { recursive: true, force: true });
     }
   });
 
@@ -244,6 +527,7 @@ describe('CLI contract', () => {
       expect(result.stderr).toBe('');
       expect(parseJsonStdout(result.stdout)).toMatchObject({
         ok: false,
+        env: 'custom',
         error: { code: 'permission', message: 'Re-run with --yes to confirm this write.' },
       });
       expect(server.toolCalls).toHaveLength(0);
@@ -263,14 +547,37 @@ describe('CLI contract', () => {
       );
 
       expect(result.code).toBe(0);
+      expect(result.stderr).toContain('Tip: teach your coding agent this CLI');
       expect(parseJsonStdout(result.stdout)).toMatchObject({
         ok: true,
+        env: 'custom',
         data: {
           tool: 'create_invoice',
           is_error: false,
           structured_content: { received: { total: 123 } },
+          org: { org_id: 'org_123', org_name: 'Acme Co' },
         },
       });
+      expect(server.toolCalls).toEqual([{ name: 'create_invoice', arguments: { total: 123 } }]);
+      expect(server.userinfoCalls).toBe(1);
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('prints the target org and environment to stderr for human gated calls', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli(
+        ['tool', 'call', 'create_invoice', '--yes', '--arg', 'total=123'],
+        mockEnv(server, configDir),
+      );
+
+      expect(result.code).toBe(0);
+      expect(result.stdout).toContain('called create_invoice');
+      expect(result.stderr).toContain('→ Acme Co (org_123) · custom');
       expect(server.toolCalls).toEqual([{ name: 'create_invoice', arguments: { total: 123 } }]);
     } finally {
       await server.close();
@@ -324,7 +631,15 @@ describe('CLI contract', () => {
         mockEnv(server, configDir),
       );
       expect(readAllowed.code).toBe(0);
+      const readEnvelope = parseJsonStdout(readAllowed.stdout);
+      expect(readEnvelope).toMatchObject({
+        ok: true,
+        env: 'custom',
+        data: { tool: 'list_invoices' },
+      });
+      expect((readEnvelope.data as Record<string, unknown>).org).toBeUndefined();
       expect(server.toolCalls).toEqual([{ name: 'list_invoices', arguments: {} }]);
+      expect(server.userinfoCalls).toBe(0);
 
       server.clearToolCalls();
       const envBlocked = await runCli(
@@ -389,6 +704,7 @@ describe('CLI contract', () => {
       expect(result.stderr).toBe('');
       expect(parseJsonStdout(result.stdout)).toMatchObject({
         ok: false,
+        env: 'custom',
         error: { code: 'generic', message: 'tool exploded' },
       });
       expect(server.toolCalls).toEqual([{ name: 'tool_error', arguments: {} }]);
@@ -449,9 +765,10 @@ describe('CLI contract', () => {
       const result = await runCli(args, mockEnv(server, configDir));
 
       expect(result.code).toBe(0);
-      expect(result.stderr).toBe('');
+      expect(result.stderr).toContain('Tip: teach your coding agent this CLI');
       expect(parseJsonStdout(result.stdout)).toMatchObject({
         ok: true,
+        env: 'custom',
         data: {
           tool: expectedCall.name,
           is_error: false,

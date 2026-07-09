@@ -11,6 +11,7 @@ describe('output envelope', () => {
     const env = successEnvelope({ hello: 'world' });
     expect(env.ok).toBe(true);
     expect(env.schema_version).toBe(1);
+    expect(env.env).toBe('production');
     expect(env.data).toEqual({ hello: 'world' });
   });
 
@@ -18,6 +19,7 @@ describe('output envelope', () => {
     const env = errorEnvelope('boom', 'network');
     expect(env.ok).toBe(false);
     expect(env.schema_version).toBe(1);
+    expect(env.env).toBe('production');
     expect(env.error).toEqual({ message: 'boom', code: 'network' });
   });
 
@@ -26,6 +28,7 @@ describe('output envelope', () => {
     const parsed = JSON.parse(out);
     expect(parsed.ok).toBe(true);
     expect(parsed.schema_version).toBe(1);
+    expect(parsed.env).toBe('production');
     expect(parsed.data).toEqual({ a: 1 });
   });
 
@@ -35,6 +38,7 @@ describe('output envelope', () => {
     const parsed = JSON.parse(out);
     expect(parsed.ok).toBe(false);
     expect(parsed.schema_version).toBe(1);
+    expect(parsed.env).toBe('production');
     expect(parsed.error).toEqual({ message: 'boom', code: 'network' });
     // ...and carry none of the human-mode framing.
     expect(out).not.toContain('Error:');
@@ -43,5 +47,10 @@ describe('output envelope', () => {
   it('uses human text (not JSON) when --json is off', () => {
     expect(formatError('boom', 'network', {})).toBe('Error: boom');
     expect(formatSuccess('hi', {})).toBe('hi');
+  });
+
+  it('derives env from explicit base URLs', () => {
+    expect(successEnvelope({}, { baseUrl: 'http://localhost:9999' }).env).toBe('custom');
+    expect(formatSuccess({}, { json: true, staging: true })).toContain('"env":"staging"');
   });
 });

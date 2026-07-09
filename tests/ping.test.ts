@@ -46,6 +46,7 @@ describe('pingCommand', () => {
         service: 'mock-mcp',
         base_url: 'https://mcp.example.test',
       },
+      env: 'custom',
       schema_version: 1,
     });
   });

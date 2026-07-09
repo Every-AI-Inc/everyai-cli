@@ -1,14 +1,26 @@
 # @everyai/cli
 
-The **agent-agnostic** command line for [Every AI](https://every.ai) — manage your business (invoices, clients, contacts, proposals, deals) from any shell, any coding agent, or CI.
+The **agent-agnostic** command line for [Every AI](https://every.ai) — manage invoices, clients, contacts, proposals, deals, and pipeline work from any shell, coding agent, or CI job.
 
-Install once, log in once, and the same `every` command works everywhere your agents run — Claude Code, Codex, Cursor, plain terminals, cron, CI — instead of wiring a bespoke MCP + OAuth setup into each host.
+Install once, log in once, and teach each coding agent the same `every` command instead of wiring MCP + OAuth separately into every host.
 
 ```bash
 npm install -g @everyai/cli
-every login            # opens your browser (OAuth + PKCE); tokens land in your OS keychain
-every whoami --json    # authenticated check: who you are + how many tools you have
-every tools list       # the full tool surface, with safety classifications
+every docs                         # offline command tree, output contract, workflows
+every login                        # opens your browser; tokens land in your OS keychain
+every skills install claude|codex  # teach Claude Code or Codex how to use Every
+every whoami                       # user, org, environment, tool-count check
+```
+
+One-shot invoice example with inline args:
+
+```bash
+every invoice list --status overdue --json
+every tool call create_invoice \
+  --arg client_id=client_123 \
+  --arg line_items='[{"description":"Strategy work","quantity":1,"unit_price":1500}]' \
+  --yes \
+  --json
 ```
 
 ## Why a CLI (vs. adding the MCP server to each host)
@@ -27,7 +39,8 @@ every login [--staging]        # browser OAuth; keychain storage; refresh handle
 every logout | whoami | auth status | org
 
 # Discovery
-every tools list [--no-cache]
+every docs
+every tools list [--filter <substr>] [--no-cache]
 every tools describe <name>
 every policy explain <name>    # classification + exactly what running it requires
 
@@ -51,8 +64,8 @@ every skills install codex     # → .agents/skills/use-every/
 Every command supports `--json`: exactly one JSON document on stdout, nothing else.
 
 ```jsonc
-{ "ok": true,  "data": { /* ... */ }, "schema_version": 1 }
-{ "ok": false, "error": { "message": "...", "code": "..." }, "schema_version": 1 }
+{ "ok": true,  "data": { /* ... */ }, "env": "production", "schema_version": 1 }
+{ "ok": false, "error": { "message": "...", "code": "..." }, "env": "production", "schema_version": 1 }
 ```
 
 Exit codes: `0` ok · `1` tool/generic error · `2` usage · `3` auth (run `every login`) · `4` permission/confirmation needed · `5` rate-limited · `6` not found · `7` network/timeout.
@@ -60,6 +73,8 @@ Exit codes: `0` ok · `1` tool/generic error · `2` usage · `3` auth (run `ever
 ## Headless / CI
 
 Set `EVERY_TOKEN` to a valid access token to skip the browser flow entirely. `login` requires a TTY by design and fails fast (exit `3`) without one.
+
+Target precedence: `--staging` > `EVERY_MCP_URL` > `EVERY_ENV=staging|production` > production.
 
 ## Status
 
