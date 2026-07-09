@@ -1,3 +1,8 @@
+import { access } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { createInterface } from 'node:readline/promises';
+import type { Readable, Writable } from 'node:stream';
 import { environmentNameForBaseUrl, resolveBaseUrl } from '../lib/config.js';
 import { CliError } from '../lib/errors.js';
 import { ExitCode } from '../lib/exit-codes.js';
@@ -13,10 +18,157 @@ import {
   resolveAuthTarget,
 } from '../lib/auth/tokens.js';
 import { fetchUserInfo, UserInfo } from '../lib/auth/userinfo.js';
-import { maybeShowSkillHint } from '../lib/hints.js';
+import {
+  HintsFile,
+  maybeShowSkillHint,
+  readHints,
+  writeHints,
+} from '../lib/hints.js';
 import { emit } from '../lib/output.js';
+import { installBundledSkill } from './skills.js';
 
 const WHOAMI_TIMEOUT_MS = 10_000;
+const SKILL_OFFER_PROMPT =
+  'Teach your coding agent to use Every? Install the use-every skill: [1] Claude Code [2] Codex [3] Both [Enter=skip]';
+
+type SkillOfferTarget = 'claude' | 'codex';
+type TtyReadable = Readable & { isTTY?: boolean };
+type TtyWritable = Writable & { isTTY?: boolean };
+
+export interface SkillOfferFileSystem {
+  pathExists(filePath: string): Promise<boolean>;
+  readHints(): Promise<HintsFile>;
+  writeHints(hints: HintsFile): Promise<void>;
+}
+
+export interface PostLoginSkillOfferOptions {
+  json?: boolean;
+  input?: TtyReadable;
+  output?: TtyWritable;
+  errorOutput?: Writable;
+  cwd?: string;
+  homeDir?: string;
+  fileSystem?: SkillOfferFileSystem;
+  installSkill?: (target: SkillOfferTarget) => Promise<{ installed_to: string }>;
+}
+
+async function pathExists(filePath: string): Promise<boolean> {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const defaultSkillOfferFileSystem: SkillOfferFileSystem = {
+  pathExists,
+  readHints,
+  writeHints,
+};
+
+function hostPaths(cwd: string, homeDir: string): Record<
+  SkillOfferTarget,
+  { markers: string[]; installed: string[] }
+> {
+  return {
+    claude: {
+      markers: [path.join(cwd, '.claude'), path.join(homeDir, '.claude')],
+      installed: [
+        path.join(cwd, '.claude', 'skills', 'use-every'),
+        path.join(homeDir, '.claude', 'skills', 'use-every'),
+      ],
+    },
+    codex: {
+      markers: [path.join(cwd, '.agents'), path.join(homeDir, '.codex')],
+      installed: [
+        path.join(cwd, '.agents', 'skills', 'use-every'),
+        path.join(homeDir, '.codex', 'skills', 'use-every'),
+        path.join(homeDir, '.agents', 'skills', 'use-every'),
+      ],
+    },
+  };
+}
+
+async function anyPathExists(
+  fileSystem: SkillOfferFileSystem,
+  paths: string[],
+): Promise<boolean> {
+  const matches = await Promise.all(paths.map((filePath) => fileSystem.pathExists(filePath)));
+  return matches.some(Boolean);
+}
+
+function targetsForAnswer(answer: string): SkillOfferTarget[] {
+  if (answer === '1') return ['claude'];
+  if (answer === '2') return ['codex'];
+  if (answer === '3') return ['claude', 'codex'];
+  return [];
+}
+
+function targetLabel(target: SkillOfferTarget): string {
+  return target === 'claude' ? 'Claude Code' : 'Codex';
+}
+
+/** Best-effort interactive offer shown only after a browser login succeeds. */
+export async function maybeOfferSkillAfterLogin(
+  opts: PostLoginSkillOfferOptions = {},
+): Promise<void> {
+  const input = opts.input ?? process.stdin;
+  const output = opts.output ?? process.stdout;
+  const errorOutput = opts.errorOutput ?? process.stderr;
+
+  if (
+    opts.json ||
+    input.isTTY !== true ||
+    output.isTTY !== true ||
+    (opts.errorOutput === undefined && process.stderr.isTTY !== true)
+  ) return;
+
+  try {
+    const fileSystem = opts.fileSystem ?? defaultSkillOfferFileSystem;
+    const hints = await fileSystem.readHints();
+    if (hints.skill_offer_declined) return;
+
+    const cwd = opts.cwd ?? process.cwd();
+    const paths = hostPaths(cwd, opts.homeDir ?? os.homedir());
+    const [claudeDetected, claudeInstalled, codexDetected, codexInstalled] = await Promise.all([
+      anyPathExists(fileSystem, paths.claude.markers),
+      anyPathExists(fileSystem, paths.claude.installed),
+      anyPathExists(fileSystem, paths.codex.markers),
+      anyPathExists(fileSystem, paths.codex.installed),
+    ]);
+    if (!(claudeDetected && !claudeInstalled) && !(codexDetected && !codexInstalled)) return;
+
+    const rl = createInterface({ input, output: errorOutput, terminal: false });
+    let answer: string;
+    try {
+      answer = (await rl.question(`${SKILL_OFFER_PROMPT}\n`)).trim();
+    } finally {
+      rl.close();
+    }
+
+    if (answer === '') {
+      await fileSystem.writeHints({ ...hints, skill_offer_declined: true });
+      return;
+    }
+
+    const installSkill = opts.installSkill ?? ((target: SkillOfferTarget) => {
+      const installRoot = target === 'claude'
+        ? path.join(cwd, '.claude', 'skills')
+        : path.join(cwd, '.agents', 'skills');
+      return installBundledSkill(target, { dir: installRoot });
+    });
+
+    for (const target of targetsForAnswer(answer)) {
+      const installed = await installSkill(target);
+      output.write(
+        `Installed use-every for ${targetLabel(target)} to ${installed.installed_to} — commit it to share with your team.\n`,
+      );
+    }
+  } catch {
+    // An optional offer must never turn a successful login into a failure.
+  }
+}
 
 export interface AuthCommandOptions {
   json?: boolean;
@@ -204,6 +356,7 @@ export async function loginCommand(opts: AuthCommandOptions = {}): Promise<void>
     every_token: false,
   };
   emitLogin(data, opts);
+  await maybeOfferSkillAfterLogin({ json: opts.json });
 }
 
 export async function logoutCommand(opts: AuthCommandOptions = {}): Promise<void> {

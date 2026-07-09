@@ -1,0 +1,16 @@
+{
+  "name": "everyai-cli",
+  "interface": { "displayName": "Every AI CLI" },
+  "plugins": [
+    {
+      "name": "every",
+      "description": "Run your business in Every — pipeline, invoices, proposals, contacts — via the every CLI",
+      "author": { "name": "Every AI Inc." },
+      "homepage": "https://every.ai",
+      "repository": "https://github.com/Every-AI-Inc/everyai-cli",
+      "source": { "source": "local", "path": "./" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    }
+  ]
+}

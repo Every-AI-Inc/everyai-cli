@@ -23,6 +23,19 @@ every tool call create_invoice \
   --json
 ```
 
+## Install as an agent plugin
+
+The npm install remains the primary path. Agent plugins distribute the bundled `use-every` skill, which teaches the agent how to install and use the CLI.
+
+In Claude Code:
+
+```text
+/plugin marketplace add Every-AI-Inc/everyai-cli
+/plugin install every@everyai-cli
+```
+
+Codex's repo-scoped marketplace location is `.agents/plugins/marketplace.json`.
+
 ## Why a CLI (vs. adding the MCP server to each host)
 
 The CLI talks to the same Every MCP server (`admin-mcp.every.ai`) and inherits its full tool surface automatically — new tools appear with no CLI upgrade. What the CLI adds:

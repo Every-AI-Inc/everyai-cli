@@ -1,5 +1,11 @@
 # @everyai/cli
 
+## 0.3.0
+
+### Minor Changes
+
+- Skill excellence and install UX: fact-checked Every workflows and domain safeguards, an optional post-login agent-skill offer, host-aware hints and install guidance, plus Claude Code plugin metadata and Codex marketplace guidance.
+
 ## 0.2.0
 
 ### Minor Changes

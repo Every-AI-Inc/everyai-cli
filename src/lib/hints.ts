@@ -2,11 +2,26 @@ import { access, mkdir, readFile, rename, writeFile, chmod } from 'node:fs/promi
 import path from 'node:path';
 import { getConfigDir } from './config.js';
 
-const SKILL_HINT =
-  'Tip: teach your coding agent this CLI — run: every skills install claude|codex  (shown once)';
+const GENERIC_SKILL_TARGET = 'claude|codex';
 
-interface HintsFile {
+type SkillHintTarget = 'claude' | 'codex' | typeof GENERIC_SKILL_TARGET;
+
+function skillHintTargetForEnv(env: NodeJS.ProcessEnv): SkillHintTarget {
+  if (env.CLAUDECODE !== undefined) return 'claude';
+  if (Object.keys(env).some((key) => key.startsWith('CODEX_') && env[key] !== undefined)) {
+    return 'codex';
+  }
+  return GENERIC_SKILL_TARGET;
+}
+
+export function skillHintForEnv(env: NodeJS.ProcessEnv = process.env): string {
+  const target = skillHintTargetForEnv(env);
+  return `Tip: teach your coding agent this CLI — run: every skills install ${target}  (shown once)`;
+}
+
+export interface HintsFile {
   skill_hint_shown?: boolean;
+  skill_offer_declined?: boolean;
   [key: string]: unknown;
 }
 
@@ -23,7 +38,7 @@ async function pathExists(filePath: string): Promise<boolean> {
   }
 }
 
-async function readHints(): Promise<HintsFile> {
+export async function readHints(): Promise<HintsFile> {
   try {
     const parsed = JSON.parse(await readFile(hintsPath(), 'utf8')) as HintsFile;
     return parsed && typeof parsed === 'object' ? parsed : {};
@@ -35,7 +50,7 @@ async function readHints(): Promise<HintsFile> {
   }
 }
 
-async function writeHints(value: HintsFile): Promise<void> {
+export async function writeHints(value: HintsFile): Promise<void> {
   const filePath = hintsPath();
   await mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
   const tempPath = `${filePath}.${process.pid}.tmp`;
@@ -45,12 +60,15 @@ async function writeHints(value: HintsFile): Promise<void> {
   await chmod(filePath, 0o600);
 }
 
-async function localSkillInstalled(): Promise<boolean> {
+async function localSkillInstalled(env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
   const cwd = process.cwd();
-  return (
-    (await pathExists(path.join(cwd, '.claude', 'skills', 'use-every'))) ||
-    (await pathExists(path.join(cwd, '.agents', 'skills', 'use-every')))
-  );
+  const target = skillHintTargetForEnv(env);
+  const claudeInstalled = () => pathExists(path.join(cwd, '.claude', 'skills', 'use-every'));
+  const codexInstalled = () => pathExists(path.join(cwd, '.agents', 'skills', 'use-every'));
+
+  if (target === 'claude') return claudeInstalled();
+  if (target === 'codex') return codexInstalled();
+  return (await claudeInstalled()) || (await codexInstalled());
 }
 
 export async function maybeShowSkillHint(): Promise<void> {
@@ -59,7 +77,7 @@ export async function maybeShowSkillHint(): Promise<void> {
     if (hints.skill_hint_shown) return;
     if (await localSkillInstalled()) return;
 
-    process.stderr.write(`${SKILL_HINT}\n`);
+    process.stderr.write(`${skillHintForEnv()}\n`);
     await writeHints({ ...hints, skill_hint_shown: true });
   } catch {
     // Hints must never affect command success.

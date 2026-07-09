@@ -148,5 +148,9 @@ describe('use-every skill contract', () => {
     expect(text).toContain('--yes');
     expect(text).toContain('--allow-destructive');
     expect(text).toContain('--json');
+    expect(text).toContain('creation-only');
+    expect(text).toContain('sales_tax_applied');
+    expect(text).toMatch(/paginate/i);
+    expect(text).toContain('server-enforced read-only');
   });
 });

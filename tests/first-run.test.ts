@@ -60,10 +60,13 @@ describe('first-run menu', () => {
   it('Enter invokes login by default', async () => {
     const capture = outputCapture();
     const showHelp = vi.fn();
-    const login = vi.fn();
+    const menuInput = input('\n');
+    const login = vi.fn(async () => {
+      expect(menuInput.listenerCount('data')).toBe(0);
+    });
 
     await runFirstRunMenu({
-      input: input('\n'),
+      input: menuInput,
       output: capture.output,
       showHelp,
       login,

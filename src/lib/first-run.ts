@@ -43,17 +43,21 @@ export async function runFirstRunMenu(opts: FirstRunMenuOptions): Promise<void> 
   );
 
   const rl = createInterface({ input: opts.input, output: opts.output });
+  let action: 'login' | 'help' | 'exit' = 'exit';
   try {
     const answer = (await rl.question('Choose [1]: ')).trim();
     if (answer === '' || answer === '1') {
-      await opts.login();
-      return;
+      action = 'login';
+    } else if (answer === '2') {
+      action = 'help';
     }
-
-    if (answer === '2') opts.showHelp();
   } finally {
     rl.close();
   }
+
+  // Login may open its own post-login prompt, so release stdin first.
+  if (action === 'login') await opts.login();
+  else if (action === 'help') opts.showHelp();
 }
 
 export async function runDefaultFirstRunMenu(params: {

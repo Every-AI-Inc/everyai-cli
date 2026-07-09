@@ -508,6 +508,14 @@ describe('CLI contract', () => {
       expect(result.code).toBe(0);
       expect(result.stderr).toBe('');
       expect(parseJsonStdout(result.stdout)).toMatchObject({ ok: true, env: 'custom' });
+
+      const targeted = await runCli(
+        ['tools', 'list', '--json'],
+        mockEnv(server, configDir, { CLAUDECODE: undefined, CODEX_FOO: '1' }),
+      );
+      expect(targeted.code).toBe(0);
+      expect(targeted.stderr).toContain('every skills install codex');
+      expect(parseJsonStdout(targeted.stdout)).toMatchObject({ ok: true, env: 'custom' });
     } finally {
       await server.close();
       await rm(configDir, { recursive: true, force: true });
