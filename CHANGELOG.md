@@ -1,5 +1,11 @@
 # @everyai/cli
 
+## 0.2.0
+
+### Minor Changes
+
+- Agent-DX release, from a real cold-start agent trace (13 round-trips → ≤5, now enforced by a CI eval): `whoami`/`org` report who you are and where writes land (email, org id/name/slug via OIDC userinfo, environment); every `--json` envelope carries `env` and gated writes echo the target `org`; `every invoice create --client "<name>" --amount <n>` with fuzzy client resolution (ambiguity → mechanical `error.candidates`); discovery loop closed (postinstall notice, login next-steps, one-time skill hint, first-run welcome menu, README agent quickstart); `everyai` bin alias; `tools list --filter`; one-shot offline `every docs`; breadcrumbs teach inline `--arg`/`--args -`; `EVERY_ENV` + `XDG_CONFIG_HOME` support.
+
 ## 0.1.0
 
 ### Minor Changes
