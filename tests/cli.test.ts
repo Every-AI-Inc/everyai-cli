@@ -163,9 +163,14 @@ describe('CLI contract', () => {
 
     expect(result.code).toBe(0);
     expect(result.stderr).toBe('');
+    const pkgVersion = (
+      JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+        version: string;
+      }
+    ).version;
     expect(parseJsonStdout(result.stdout)).toEqual({
       ok: true,
-      data: { version: '0.0.0' },
+      data: { version: pkgVersion },
       schema_version: 1,
     });
   });
