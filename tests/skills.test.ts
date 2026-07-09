@@ -141,9 +141,10 @@ describe('use-every skill contract', () => {
     const frontmatter = parseFrontmatter(text);
 
     expect(frontmatter.name).toBe('use-every');
-    expect(frontmatter.description).toBe(
-      'drive the Every AI CLI to manage invoices, contacts, deals, and proposals from any coding agent',
-    );
+    // Assert shape, not verbatim copy — the description is editable content.
+    expect(frontmatter.description).toMatch(/Every AI CLI/);
+    expect(frontmatter.description).toMatch(/invoices/);
+    expect(frontmatter.description.length).toBeGreaterThan(40);
     expect(text).toContain('--yes');
     expect(text).toContain('--allow-destructive');
     expect(text).toContain('--json');
