@@ -1,4 +1,6 @@
 import { spawn } from 'node:child_process';
+import { mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -111,5 +113,54 @@ describe('CLI contract', () => {
     const parsed = parseJsonStdout(result.stdout);
     expect(parsed).toMatchObject({ ok: true, schema_version: 1 });
     expect((parsed.data as { help: string }).help).toContain('Usage: every');
+  });
+
+  it('emits auth status through the JSON envelope without requiring login', async () => {
+    const configDir = await mkdtemp(path.join(os.tmpdir(), 'everyai-cli-status-'));
+    try {
+      const result = await runCli(['auth', 'status', '--json'], {
+        EVERY_CONFIG_DIR: configDir,
+        EVERYAI_FORCE_FILE_STORE: '1',
+        EVERY_TOKEN: '',
+      });
+
+      expect(result.code).toBe(0);
+      expect(result.stderr).toBe('');
+      expect(parseJsonStdout(result.stdout)).toMatchObject({
+        ok: true,
+        data: {
+          logged_in: false,
+          storage_backend: 'file',
+          every_token: false,
+        },
+        schema_version: 1,
+      });
+    } finally {
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails fast with exit 3 when login is run without a TTY', async () => {
+    const configDir = await mkdtemp(path.join(os.tmpdir(), 'everyai-cli-login-'));
+    try {
+      const result = await runCli(['login', '--json'], {
+        EVERY_CONFIG_DIR: configDir,
+        EVERYAI_FORCE_FILE_STORE: '1',
+        EVERY_TOKEN: '',
+      });
+
+      expect(result.code).toBe(3);
+      expect(result.stderr).toBe('');
+      expect(parseJsonStdout(result.stdout)).toMatchObject({
+        ok: false,
+        error: {
+          code: 'auth',
+          message: 'login requires a browser; set EVERY_TOKEN for headless use',
+        },
+        schema_version: 1,
+      });
+    } finally {
+      await rm(configDir, { recursive: true, force: true });
+    }
   });
 });

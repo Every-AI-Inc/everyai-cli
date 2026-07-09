@@ -2,6 +2,13 @@
 import { readFileSync } from 'node:fs';
 import { Command, CommanderError } from 'commander';
 import { pingCommand } from './commands/ping.js';
+import {
+  authStatusCommand,
+  loginCommand,
+  logoutCommand,
+  orgCommand,
+  whoamiCommand,
+} from './commands/auth.js';
 import { CliError } from './lib/errors.js';
 import { emit, emitError } from './lib/output.js';
 import { ExitCode } from './lib/exit-codes.js';
@@ -46,6 +53,55 @@ withGlobalOptions(
 ).action(async (_options: unknown, command: Command) => {
   const opts = command.optsWithGlobals();
   await pingCommand({ json: opts.json, staging: opts.staging });
+});
+
+withGlobalOptions(
+  program
+    .command('login')
+    .description('Log in with browser-based OAuth and store tokens locally'),
+).action(async (_options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await loginCommand({ json: opts.json, staging: opts.staging });
+});
+
+withGlobalOptions(
+  program
+    .command('logout')
+    .description('Delete stored auth tokens for the selected environment'),
+).action(async (_options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await logoutCommand({ json: opts.json, staging: opts.staging });
+});
+
+withGlobalOptions(
+  program
+    .command('whoami')
+    .description('Show the current authenticated user and verify MCP liveness'),
+).action(async (_options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await whoamiCommand({ json: opts.json, staging: opts.staging });
+});
+
+const authCommand = withGlobalOptions(
+  program.command('auth').description('Inspect authentication state'),
+);
+
+withGlobalOptions(
+  authCommand.command('status').description('Show local auth status without network access'),
+).action(async (_options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await authStatusCommand({ json: opts.json, staging: opts.staging });
+});
+
+withGlobalOptions(
+  program
+    .command('org')
+    .description(
+      'Show org claims from the current token; multi-org selection lands in a later phase',
+    ),
+).action(async (_options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await orgCommand({ json: opts.json, staging: opts.staging });
 });
 
 const CLEAN_EXIT_CODES = new Set([

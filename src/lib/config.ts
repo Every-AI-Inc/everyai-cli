@@ -7,6 +7,11 @@ import path from 'node:path';
  */
 export const CONFIG_DIR = path.join(os.homedir(), '.config', 'everyai');
 
+/** Resolve the config directory dynamically so tests can isolate state. */
+export function getConfigDir(): string {
+  return process.env.EVERY_CONFIG_DIR ?? CONFIG_DIR;
+}
+
 /** Deployed MCP base URLs. */
 export const PROD_BASE_URL = 'https://admin-mcp.every.ai';
 export const STAGING_BASE_URL = 'https://admin-mcp-staging.up.railway.app';
