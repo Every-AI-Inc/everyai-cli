@@ -32,7 +32,7 @@ export interface SuccessEnvelope<T> {
 
 export interface ErrorEnvelope {
   ok: false;
-  error: { message: string; code: string };
+  error: { message: string; code: string; [key: string]: unknown };
   env: EnvironmentName;
   schema_version: typeof SCHEMA_VERSION;
 }
@@ -55,10 +55,11 @@ export function errorEnvelope(
   message: string,
   code: string,
   opts: EmitOptions = {},
+  details: Record<string, unknown> = {},
 ): ErrorEnvelope {
   return {
     ok: false,
-    error: { message, code },
+    error: { message, code, ...details },
     env: envelopeEnv(opts),
     schema_version: SCHEMA_VERSION,
   };
@@ -80,8 +81,13 @@ export function formatSuccess<T>(data: T, opts: EmitOptions = {}): string {
 }
 
 /** Render an error as a string (pure JSON when `json`, else human text). */
-export function formatError(message: string, code: string, opts: EmitOptions = {}): string {
-  if (opts.json) return JSON.stringify(errorEnvelope(message, code, opts));
+export function formatError(
+  message: string,
+  code: string,
+  opts: EmitOptions = {},
+  details: Record<string, unknown> = {},
+): string {
+  if (opts.json) return JSON.stringify(errorEnvelope(message, code, opts, details));
   return `Error: ${message}`;
 }
 
@@ -94,8 +100,13 @@ export function emit<T>(data: T, opts: EmitOptions = {}): void {
  * Emit an error. In `--json` mode the envelope goes to stdout so a single
  * parse of stdout always yields the machine result; human errors go to stderr.
  */
-export function emitError(message: string, code: string, opts: EmitOptions = {}): void {
-  const rendered = formatError(message, code, opts);
+export function emitError(
+  message: string,
+  code: string,
+  opts: EmitOptions = {},
+  details: Record<string, unknown> = {},
+): void {
+  const rendered = formatError(message, code, opts, details);
   if (opts.json) {
     process.stdout.write(rendered + '\n');
   } else {

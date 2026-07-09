@@ -20,6 +20,7 @@ import {
   contactListCommand,
   dealListCommand,
   dealMoveCommand,
+  invoiceCreateCommand,
   invoiceListCommand,
   invoiceSendCommand,
 } from './commands/aliases.js';
@@ -228,7 +229,10 @@ const invoiceCommand = withToolExecutionOptions(
         'after',
         [
           '',
-          'Create invoices with line items fastest with:',
+          'Create a simple invoice:',
+          '  every invoice create --client "Acme" --amount 100 --yes --json',
+          '',
+          'For rich invoices, use the full tool:',
           '  every tool call create_invoice --arg client_id=<id> --arg line_items=\'[{"description":"Work","quantity":1,"unit_price":100}]\'',
           '  every tool call create_invoice --args -',
           '  every tool call create_invoice --args file.json',
@@ -237,6 +241,35 @@ const invoiceCommand = withToolExecutionOptions(
       ),
   ),
 );
+
+withGlobalOptions(
+  withToolExecutionOptions(
+    invoiceCommand
+      .command('create')
+      .description('Create a simple draft invoice')
+      .option('--client <name>', 'client name to resolve with list_clients')
+      .option('--client-id <id>', 'client id; skips client-name resolution')
+      .requiredOption('--amount <n>', 'unit price for the single line item')
+      .option('--description <text>', 'line item description')
+      .option('--quantity <q>', 'line item quantity'),
+  ),
+).action(async (_options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await invoiceCreateCommand({
+    json: opts.json,
+    staging: opts.staging,
+    noCache: opts.noCache,
+    yes: opts.yes,
+    allowDestructive: opts.allowDestructive,
+    readOnly: opts.readOnly,
+    timeout: opts.timeout,
+    client: opts.client,
+    clientId: opts.clientId,
+    amount: opts.amount,
+    description: opts.description,
+    quantity: opts.quantity,
+  });
+});
 
 withGlobalOptions(
   withToolExecutionOptions(
@@ -481,7 +514,7 @@ async function main(): Promise<void> {
       process.exit(ExitCode.USAGE);
     }
     if (err instanceof CliError) {
-      emitError(err.message, err.code, { json: jsonMode });
+      emitError(err.message, err.code, { json: jsonMode }, err.details);
       process.exit(err.exitCode);
     }
     const message = err instanceof Error ? err.message : String(err);

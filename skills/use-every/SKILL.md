@@ -80,8 +80,14 @@ Invoice flow:
 
 ```bash
 every invoice list --status overdue --json
-every tool call create_invoice --arg client_id=<id> --arg line_items='[{"description":"Work","quantity":1,"unit_price":100}]' --yes --json
+every invoice create --client "Acme" --amount 100 --yes --json
 every invoice send <id> --yes --allow-destructive --json
+```
+
+For rich invoices with multiple line items, tax, dates, currency, or notes, use the full tool fallback:
+
+```bash
+every tool call create_invoice --arg client_id=<id> --arg line_items='[{"description":"Work","quantity":1,"unit_price":100}]' --yes --json
 ```
 
 Contacts:

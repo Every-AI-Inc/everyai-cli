@@ -41,6 +41,16 @@ export interface ToolCallOptions extends BaseCommandOptions {
 
 type ClassifiedTool = McpTool & { classification: Classification };
 type ArgsFactory = () => Promise<Record<string, unknown>>;
+export interface ToolCallData {
+  tool: string;
+  is_error: boolean;
+  content: unknown;
+  structured_content?: unknown;
+  org?: { org_id: string | null; org_name: string | null };
+  [key: string]: unknown;
+}
+
+type DataAugmenter = (data: ToolCallData) => ToolCallData | Promise<ToolCallData>;
 
 export type ToolExecutionOptions = Omit<ToolCallOptions, 'args' | 'arg'>;
 
@@ -285,11 +295,11 @@ async function resolveWriteTarget(baseUrl: string): Promise<UserInfo | undefined
   }
 }
 
-export async function executeToolCall(
+export async function invokeToolCall(
   name: string,
   opts: ToolExecutionOptions = {},
   argsFactory: ArgsFactory = async () => ({}),
-): Promise<void> {
+): Promise<ToolCallData> {
   const baseUrl = resolveBaseUrl({ staging: opts.staging });
   const token = await getToken({ baseUrl });
   const tools = await listTools(baseUrl, token, { noCache: opts.noCache });
@@ -339,6 +349,16 @@ export async function executeToolCall(
     throw new CliError(message, ExitCode.GENERIC, 'generic');
   }
 
+  return data;
+}
+
+export async function executeToolCall(
+  name: string,
+  opts: ToolExecutionOptions = {},
+  argsFactory: ArgsFactory = async () => ({}),
+  augmentData: DataAugmenter = (data) => data,
+): Promise<void> {
+  const data = await augmentData(await invokeToolCall(name, opts, argsFactory));
   emitCommand(data, toolCallHuman(data), opts);
   await maybeShowSkillHint();
 }

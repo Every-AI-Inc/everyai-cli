@@ -52,6 +52,33 @@ function response(body, status = 200) {
   });
 }
 
+function configuredClients() {
+  const raw = process.env.EVERYAI_MOCK_LIST_CLIENTS_JSON;
+  if (!raw) return undefined;
+
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function clientId(client) {
+  return client.client_id ?? client.id ?? '';
+}
+
+function clientName(client) {
+  return client.name ?? client.client_name ?? '';
+}
+
+function clientsMarkdown(clients) {
+  if (clients.length === 0) return 'No clients found.';
+  return clients
+    .map((client) => `- **${clientName(client)}** — ${client.email ?? 'no email'} [id: ${clientId(client)}]`)
+    .join('\n');
+}
+
 if (enabled && stateFile) {
   const targetOrigin = new URL(baseUrl).origin;
 
@@ -143,6 +170,20 @@ if (enabled && stateFile) {
           result: {
             isError: true,
             content: [{ type: 'text', text: 'tool exploded' }],
+          },
+        });
+      }
+
+      const clients = name === 'list_clients' ? configuredClients() : undefined;
+      if (clients) {
+        const text = clientsMarkdown(clients);
+        return response({
+          jsonrpc: '2.0',
+          id: body.id,
+          result: {
+            content: [{ type: 'text', text }],
+            structuredContent: { result: text },
+            isError: false,
           },
         });
       }

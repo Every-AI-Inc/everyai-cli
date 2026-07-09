@@ -9,6 +9,7 @@ export class CliError extends Error {
     message: string,
     public exitCode = 1,
     public code = 'generic',
+    public details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = 'CliError';
