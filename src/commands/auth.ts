@@ -1,6 +1,7 @@
 import { resolveBaseUrl } from '../lib/config.js';
 import { CliError } from '../lib/errors.js';
 import { ExitCode } from '../lib/exit-codes.js';
+import { mcpCall } from '../lib/mcp.js';
 import { loginFlow } from '../lib/auth/flow.js';
 import { decodeJwtClaims, JwtClaims } from '../lib/auth/jwt.js';
 import {
@@ -117,59 +118,16 @@ async function verifyMcpLiveness(
   baseUrl: string,
   token: string,
 ): Promise<{ authenticated: true; tools: number }> {
-  const url = `${baseUrl.replace(/\/+$/, '')}/`;
-  let response: Response;
-
-  try {
-    response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${token}`,
-        'content-type': 'application/json',
-        // Streamable-HTTP MCP servers require both accept types (406 otherwise).
-        accept: 'application/json, text/event-stream',
-      },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 'everyai-cli-whoami',
-        method: 'tools/list',
-        params: {},
-      }),
-      signal: AbortSignal.timeout(WHOAMI_TIMEOUT_MS),
-    });
-  } catch (err) {
-    const isTimeout =
-      err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError');
-    if (isTimeout) {
-      throw new CliError(`Timed out reaching ${url} after ${WHOAMI_TIMEOUT_MS}ms`, ExitCode.NETWORK, 'network');
-    }
-    const detail = err instanceof Error ? err.message : String(err);
-    throw new CliError(`Failed to reach ${url}: ${detail}`, ExitCode.NETWORK, 'network');
-  }
-
-  if (response.status === 401) {
-    throw new CliError('Not logged in. Run \'every login\'.', ExitCode.AUTH, 'auth');
-  }
-
-  if (!response.ok) {
-    throw new CliError(`Authenticated tools/list failed: HTTP ${response.status}`, ExitCode.NETWORK, 'network');
-  }
-
-  const raw = await response.text();
-  // The response may be SSE-framed (`event: message\ndata: {...}`) or plain JSON.
-  const dataLine = raw
-    .split('\n')
-    .find((line) => line.startsWith('data:'));
-  const jsonText = dataLine ? dataLine.slice('data:'.length).trim() : raw;
-  let body: { result?: { tools?: unknown[] } };
-  try {
-    body = JSON.parse(jsonText) as { result?: { tools?: unknown[] } };
-  } catch {
-    throw new CliError('Unexpected response from MCP server (not JSON)', ExitCode.NETWORK, 'network');
-  }
+  const body = await mcpCall<{ tools?: unknown[] }>(
+    baseUrl,
+    token,
+    'tools/list',
+    {},
+    { timeoutMs: WHOAMI_TIMEOUT_MS },
+  );
   return {
     authenticated: true,
-    tools: Array.isArray(body.result?.tools) ? body.result.tools.length : 0,
+    tools: Array.isArray(body.tools) ? body.tools.length : 0,
   };
 }
 

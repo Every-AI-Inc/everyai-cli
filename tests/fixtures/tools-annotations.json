@@ -1,0 +1,314 @@
+[
+ {
+  "name": "get_home",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "what_every_does",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "get_started",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "setup_business_context",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "save_business_info",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "list_invoices",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "view_invoice",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "list_clients",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "view_client",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "list_contacts",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "list_proposals",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "view_proposal",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "list_payments",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "list_expenses",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "list_services",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "create_service",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "update_service",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "business_settings",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "create_invoice",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "update_invoice",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "delete_invoice",
+  "readOnly": false,
+  "destructive": true,
+  "openWorld": false
+ },
+ {
+  "name": "create_client",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "update_client",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "create_contact",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "update_contact",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "link_contact_to_client",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "unlink_contact_from_client",
+  "readOnly": false,
+  "destructive": true,
+  "openWorld": false
+ },
+ {
+  "name": "record_payment",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "create_expense",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "update_expense",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "delete_expense",
+  "readOnly": false,
+  "destructive": true,
+  "openWorld": false
+ },
+ {
+  "name": "create_proposal",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "update_proposal",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "delete_proposal",
+  "readOnly": false,
+  "destructive": true,
+  "openWorld": false
+ },
+ {
+  "name": "void_proposal",
+  "readOnly": false,
+  "destructive": true,
+  "openWorld": false
+ },
+ {
+  "name": "send_proposal",
+  "readOnly": false,
+  "destructive": true,
+  "openWorld": true
+ },
+ {
+  "name": "duplicate_proposal",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "convert_proposal_to_invoice",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "generate_proposal_pdf",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "generate_invoice_pdf",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "list_proposal_templates",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "save_proposal_as_template",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "list_bookings",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "view_booking",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "list_deals",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "view_deal",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "get_pipeline_summary",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "create_deal",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "move_deal_stage",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "log_deal_activity",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "send_invoice",
+  "readOnly": false,
+  "destructive": true,
+  "openWorld": true
+ },
+ {
+  "name": "ask_assistant",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ }
+]

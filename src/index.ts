@@ -9,6 +9,12 @@ import {
   orgCommand,
   whoamiCommand,
 } from './commands/auth.js';
+import { policyExplainCommand } from './commands/policy.js';
+import {
+  toolCallCommand,
+  toolsDescribeCommand,
+  toolsListCommand,
+} from './commands/tools.js';
 import { CliError } from './lib/errors.js';
 import { emit, emitError } from './lib/output.js';
 import { ExitCode } from './lib/exit-codes.js';
@@ -102,6 +108,89 @@ withGlobalOptions(
 ).action(async (_options: unknown, command: Command) => {
   const opts = command.optsWithGlobals();
   await orgCommand({ json: opts.json, staging: opts.staging });
+});
+
+const toolsCommand = withGlobalOptions(
+  program.command('tools').description('Inspect the Every MCP tool registry'),
+);
+
+withGlobalOptions(
+  toolsCommand
+    .command('list')
+    .description('List available MCP tools')
+    .option('--no-cache', 'bypass and rewrite the local tool registry cache'),
+).action(async (_options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await toolsListCommand({
+    json: opts.json,
+    staging: opts.staging,
+    noCache: opts.noCache,
+  });
+});
+
+withGlobalOptions(
+  toolsCommand
+    .command('describe')
+    .description('Describe an MCP tool and its input schema')
+    .argument('<name>', 'tool name')
+    .option('--no-cache', 'bypass and rewrite the local tool registry cache'),
+).action(async (name: string, _options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await toolsDescribeCommand(name, {
+    json: opts.json,
+    staging: opts.staging,
+    noCache: opts.noCache,
+  });
+});
+
+const toolCommand = withGlobalOptions(
+  program.command('tool').description('Invoke a single Every MCP tool'),
+);
+
+function collectOption(value: string, previous: string[]): string[] {
+  previous.push(value);
+  return previous;
+}
+
+withGlobalOptions(
+  toolCommand
+    .command('call')
+    .description('Call an MCP tool with JSON arguments')
+    .argument('<name>', 'tool name')
+    .option('--no-cache', 'bypass and rewrite the local tool registry cache')
+    .option('--args <file>', 'JSON object file to use for tool arguments; use - for stdin')
+    .option('--arg <k=v>', 'overlay one argument value; value is parsed as JSON when possible', collectOption, [])
+    .option('--yes', 'confirm write or AI-mediated tool calls')
+    .option('--allow-destructive', 'allow destructive tool calls when combined with --yes')
+    .option('--read-only', 'deny write, destructive, and AI-mediated tool calls')
+    .option('--timeout <secs>', 'tool call timeout in seconds'),
+).action(async (name: string, _options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await toolCallCommand(name, {
+    json: opts.json,
+    staging: opts.staging,
+    noCache: opts.noCache,
+    args: opts.args,
+    arg: opts.arg,
+    yes: opts.yes,
+    allowDestructive: opts.allowDestructive,
+    readOnly: opts.readOnly,
+    timeout: opts.timeout,
+  });
+});
+
+const policyCommand = withGlobalOptions(
+  program.command('policy').description('Explain local tool safety policy'),
+);
+
+withGlobalOptions(
+  policyCommand
+    .command('explain')
+    .description('Explain how a tool is classified and gated')
+    .argument('<name>', 'tool name'),
+).action(async (name: string, _options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await policyExplainCommand(name, { json: opts.json, staging: opts.staging });
 });
 
 const CLEAN_EXIT_CODES = new Set([

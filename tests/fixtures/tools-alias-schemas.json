@@ -1,0 +1,737 @@
+[
+ {
+  "name": "list_invoices",
+  "title": "List invoices",
+  "description": "List and search invoices with optional filters for status, payment state, client, and more.\n\n    Supports filtering by invoice status (draft/issued/void), payment status (unpaid/paid/overdue/partial),\n    client, and archive state. Returns invoice number, client name, total, balance due, status, and due date.\n    Use payment_status=\"overdue\" (with order_by=\"due_date\") to answer \"who owes me?\" / \"what's overdue?\".\n    Responses include record ids; response_format='concise' returns trimmed rows (ids kept), 'detailed' adds links and secondary fields.\n    ",
+  "inputSchema": {
+   "properties": {
+    "status": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Status",
+     "description": "Optional invoice status filter.",
+     "enum": [
+      "draft",
+      "issued",
+      "void"
+     ]
+    },
+    "payment_status": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Payment Status",
+     "description": "Optional payment status filter.",
+     "enum": [
+      "unpaid",
+      "paid",
+      "overdue",
+      "partial"
+     ]
+    },
+    "client_id": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Client Id"
+    },
+    "is_archived": {
+     "default": false,
+     "title": "Is Archived",
+     "type": "boolean"
+    },
+    "limit": {
+     "default": 20,
+     "title": "Limit",
+     "type": "integer"
+    },
+    "offset": {
+     "default": 0,
+     "title": "Offset",
+     "type": "integer"
+    },
+    "order_by": {
+     "default": "issue_date",
+     "title": "Order By",
+     "type": "string"
+    },
+    "order_desc": {
+     "default": true,
+     "title": "Order Desc",
+     "type": "boolean"
+    },
+    "response_format": {
+     "default": "detailed",
+     "enum": [
+      "concise",
+      "detailed"
+     ],
+     "title": "Response Format",
+     "type": "string",
+     "description": "'detailed' (default) matches today's full output, including links and secondary fields. 'concise' trims each row to essentials but always keeps '[id: ...]' for follow-up view/write tools."
+    }
+   },
+   "title": "list_invoicesArguments",
+   "type": "object"
+  },
+  "outputSchema": {
+   "properties": {
+    "result": {
+     "title": "Result",
+     "type": "string"
+    }
+   },
+   "required": [
+    "result"
+   ],
+   "title": "list_invoicesOutput",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "openWorldHint": false
+  }
+ },
+ {
+  "name": "view_invoice",
+  "title": "View invoice",
+  "description": "View a specific invoice with full details including line items, payments, and totals.\n\n    `identifier` accepts an invoice number (e.g., INV-001) or a UUID \u2014 the tool resolves\n    either form. Returns complete invoice data including client info, line items, payment\n    history, and status. In ChatGPT, renders an interactive invoice card.\n    ",
+  "inputSchema": {
+   "properties": {
+    "identifier": {
+     "title": "Identifier",
+     "type": "string",
+     "description": "Invoice number (e.g. INV-001) or invoice UUID. The tool resolves either form."
+    }
+   },
+   "required": [
+    "identifier"
+   ],
+   "title": "view_invoiceArguments",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "openWorldHint": false
+  },
+  "_meta": {
+   "openai/outputTemplate": "ui://widgets/invoice-card"
+  }
+ },
+ {
+  "name": "list_clients",
+  "title": "List clients",
+  "description": "Search clients by name (fuzzy matching \u2014 'acme' finds 'Acme Corp').\n\n    Also searches contact names linked to clients \u2014 so searching 'Brandon Chu' will find\n    a client named 'Brandon' if it has a contact named 'Brandon Chu'.\n\n    Returns client name, email, and status. Use include_contacts=true for contact details.\n    Always search before creating a new client to avoid duplicates.\n    Responses include record ids; response_format='concise' returns trimmed rows (ids kept), 'detailed' adds links and secondary fields.\n    ",
+  "inputSchema": {
+   "properties": {
+    "name": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Name"
+    },
+    "is_archived": {
+     "default": false,
+     "title": "Is Archived",
+     "type": "boolean"
+    },
+    "include_contacts": {
+     "default": false,
+     "title": "Include Contacts",
+     "type": "boolean"
+    },
+    "limit": {
+     "default": 20,
+     "title": "Limit",
+     "type": "integer"
+    },
+    "offset": {
+     "default": 0,
+     "title": "Offset",
+     "type": "integer"
+    },
+    "order_by": {
+     "default": "name",
+     "title": "Order By",
+     "type": "string"
+    },
+    "order_desc": {
+     "default": false,
+     "title": "Order Desc",
+     "type": "boolean"
+    },
+    "response_format": {
+     "default": "detailed",
+     "enum": [
+      "concise",
+      "detailed"
+     ],
+     "title": "Response Format",
+     "type": "string",
+     "description": "'detailed' (default) matches today's full output, including links and secondary fields. 'concise' trims each row to essentials but always keeps '[id: ...]' for follow-up view/write tools."
+    }
+   },
+   "title": "list_clientsArguments",
+   "type": "object"
+  },
+  "outputSchema": {
+   "properties": {
+    "result": {
+     "title": "Result",
+     "type": "string"
+    }
+   },
+   "required": [
+    "result"
+   ],
+   "title": "list_clientsOutput",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "openWorldHint": false
+  }
+ },
+ {
+  "name": "list_contacts",
+  "title": "List contacts",
+  "description": "List contacts, optionally filtered by client. Shows name, email, phone, and role.",
+  "inputSchema": {
+   "properties": {
+    "client_id": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Client Id"
+    },
+    "name": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Name"
+    },
+    "email": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Email"
+    },
+    "limit": {
+     "default": 20,
+     "title": "Limit",
+     "type": "integer"
+    },
+    "offset": {
+     "default": 0,
+     "title": "Offset",
+     "type": "integer"
+    }
+   },
+   "title": "list_contactsArguments",
+   "type": "object"
+  },
+  "outputSchema": {
+   "properties": {
+    "result": {
+     "title": "Result",
+     "type": "string"
+    }
+   },
+   "required": [
+    "result"
+   ],
+   "title": "list_contactsOutput",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "openWorldHint": false
+  }
+ },
+ {
+  "name": "create_invoice",
+  "title": "Create invoice",
+  "description": "Create a new invoice with line items. Auto-generates invoice number and public URL.\n\n    BEFORE CALLING: Use business_settings to get default currency and tax rate.\n    Use list_services to find service IDs if linking line items to existing services.\n    Use list_clients to find the client_id by name.\n\n    Currency defaults to the business's configured currency if omitted.\n    Due date defaults to 30 days from today if omitted.\n    To apply tax, set sales_tax_applied on each line item (e.g. 0.13 for 13% HST).\n    ",
+  "inputSchema": {
+   "$defs": {
+    "LineItem": {
+     "description": "A line item for an invoice or proposal.",
+     "properties": {
+      "description": {
+       "description": "Description of the work or item",
+       "title": "Description",
+       "type": "string"
+      },
+      "quantity": {
+       "default": 1,
+       "description": "Number of units",
+       "title": "Quantity",
+       "type": "number"
+      },
+      "unit_price": {
+       "description": "Price per unit",
+       "title": "Unit Price",
+       "type": "number"
+      },
+      "service_id": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "description": "Service ID from list_services (links to existing service)",
+       "title": "Service Id"
+      },
+      "discount_applied": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "description": "Discount amount. With discount_type='percentage' use 0-100. With discount_type='fixed' use a positive amount in the invoice currency.",
+       "title": "Discount Applied"
+      },
+      "discount_type": {
+       "anyOf": [
+        {
+         "enum": [
+          "percentage",
+          "fixed"
+         ],
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "description": "How discount_applied is interpreted.",
+       "title": "Discount Type"
+      },
+      "sales_tax_applied": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "description": "Tax rate as decimal (e.g. 0.13 for 13%). Get default from business_settings.",
+       "title": "Sales Tax Applied"
+      }
+     },
+     "required": [
+      "description",
+      "unit_price"
+     ],
+     "title": "LineItem",
+     "type": "object"
+    }
+   },
+   "properties": {
+    "client_id": {
+     "title": "Client Id",
+     "type": "string",
+     "description": "Client UUID returned by list_clients. Search by name first if needed."
+    },
+    "line_items": {
+     "items": {
+      "$ref": "#/$defs/LineItem"
+     },
+     "title": "Line Items",
+     "type": "array",
+     "description": "Invoice line items with description, quantity, unit_price, and optional tax/discount fields."
+    },
+    "due_date": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Due Date",
+     "description": "Optional due date. Defaults to 30 days from today.",
+     "format": "date"
+    },
+    "issue_date": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Issue Date",
+     "description": "Optional issue date. Defaults to today.",
+     "format": "date"
+    },
+    "currency": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Currency",
+     "description": "Optional ISO 4217 currency code such as USD or CAD. Defaults to business_settings currency."
+    },
+    "notes": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Notes",
+     "description": "Optional customer-facing notes printed on the invoice."
+    },
+    "is_online_payment_enabled": {
+     "default": false,
+     "title": "Is Online Payment Enabled",
+     "type": "boolean",
+     "description": "Whether to enable online payment for this invoice when available."
+    }
+   },
+   "required": [
+    "client_id",
+    "line_items"
+   ],
+   "title": "create_invoiceArguments",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": false,
+   "openWorldHint": false
+  },
+  "_meta": {
+   "openai/outputTemplate": "ui://widgets/invoice-card"
+  }
+ },
+ {
+  "name": "list_deals",
+  "title": "List deals",
+  "description": "List pipeline deals.\n\n    Defaults to live deals only: approved deals assigned to a pipeline stage.\n    Set review_state to pending, dismissed, approved, or all to inspect other\n    review states. Use search for target name or company text.\n    Responses include record ids; response_format='concise' returns trimmed rows (ids kept), 'detailed' adds links and secondary fields.\n    In ChatGPT, renders an interactive pipeline board grouped by stage.\n    ",
+  "inputSchema": {
+   "properties": {
+    "stage": {
+     "anyOf": [
+      {
+       "enum": [
+        "lead",
+        "opportunity",
+        "won",
+        "lost"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Stage"
+    },
+    "review_state": {
+     "anyOf": [
+      {
+       "enum": [
+        "approved",
+        "pending",
+        "dismissed",
+        "all"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Review State"
+    },
+    "search": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Search"
+    },
+    "limit": {
+     "default": 20,
+     "title": "Limit",
+     "type": "integer"
+    },
+    "offset": {
+     "default": 0,
+     "title": "Offset",
+     "type": "integer"
+    },
+    "order_by": {
+     "default": "updated_at",
+     "enum": [
+      "updated_at",
+      "created_at",
+      "target_name",
+      "target_company_name",
+      "total_score",
+      "last_stage_changed_at"
+     ],
+     "title": "Order By",
+     "type": "string"
+    },
+    "order_desc": {
+     "default": true,
+     "title": "Order Desc",
+     "type": "boolean"
+    },
+    "response_format": {
+     "default": "detailed",
+     "enum": [
+      "concise",
+      "detailed"
+     ],
+     "title": "Response Format",
+     "type": "string",
+     "description": "'detailed' (default) matches today's full output, including links and secondary fields. 'concise' trims each row to essentials but always keeps '[id: ...]' for follow-up view/write tools."
+    }
+   },
+   "title": "list_dealsArguments",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": false
+  },
+  "_meta": {
+   "openai/toolInvocation/invoking": "Listing deals...",
+   "openai/toolInvocation/invoked": "Deals listed",
+   "openai/outputTemplate": "ui://widgets/pipeline-board"
+  }
+ },
+ {
+  "name": "get_pipeline_summary",
+  "title": "Get pipeline summary",
+  "description": "Summarize active deal counts, linked value by stage, and pending-review count.\n\n    In ChatGPT, renders an interactive pipeline board grouped by stage.\n    ",
+  "inputSchema": {
+   "properties": {},
+   "title": "get_pipeline_summaryArguments",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": false
+  },
+  "_meta": {
+   "openai/toolInvocation/invoking": "Summarizing pipeline...",
+   "openai/toolInvocation/invoked": "Pipeline summarized",
+   "openai/outputTemplate": "ui://widgets/pipeline-board"
+  }
+ },
+ {
+  "name": "move_deal_stage",
+  "title": "Move deal stage",
+  "description": "Move a deal to Lead, Opportunity, Won, or Lost.\n\n    This is an operator/manual move and allows corrections such as moving out\n    of Won/Lost. Moving to Won requires the deal to already be linked to a\n    client; if not, the tool returns the client-resolution requirement.\n    ",
+  "inputSchema": {
+   "properties": {
+    "deal_id": {
+     "title": "Deal Id",
+     "type": "string"
+    },
+    "stage": {
+     "enum": [
+      "lead",
+      "opportunity",
+      "won",
+      "lost"
+     ],
+     "title": "Stage",
+     "type": "string"
+    }
+   },
+   "required": [
+    "deal_id",
+    "stage"
+   ],
+   "title": "move_deal_stageArguments",
+   "type": "object"
+  },
+  "outputSchema": {
+   "properties": {
+    "result": {
+     "title": "Result",
+     "type": "string"
+    }
+   },
+   "required": [
+    "result"
+   ],
+   "title": "move_deal_stageOutput",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": false,
+   "idempotentHint": false,
+   "openWorldHint": false
+  },
+  "_meta": {
+   "openai/toolInvocation/invoking": "Moving deal...",
+   "openai/toolInvocation/invoked": "Deal moved"
+  }
+ },
+ {
+  "name": "send_invoice",
+  "title": "Send invoice",
+  "description": "Send an invoice via email to the client. Sets invoice status to 'issued'.\n\n    IMPORTANT: Only call this when the user explicitly asks to send/email the invoice.\n    Do NOT auto-send after creating \u2014 invoices are created as drafts for review first.\n    This sends a real email to the client's contact email address.\n    ",
+  "inputSchema": {
+   "properties": {
+    "invoice_id": {
+     "title": "Invoice Id",
+     "type": "string"
+    }
+   },
+   "required": [
+    "invoice_id"
+   ],
+   "title": "send_invoiceArguments",
+   "type": "object"
+  },
+  "outputSchema": {
+   "properties": {
+    "result": {
+     "title": "Result",
+     "type": "string"
+    }
+   },
+   "required": [
+    "result"
+   ],
+   "title": "send_invoiceOutput",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": true,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "ask_assistant",
+  "title": "Ask assistant",
+  "description": "Read-only Q&A fallback. Use a specific tool first; reach for this only when no other tool fits.\n\n    PREFER specific tools whenever the request maps to one:\n    - Listing/filtering: list_invoices, list_clients, list_proposals, list_payments, list_expenses, list_bookings, list_services, list_contacts, list_deals, get_pipeline_summary\n    - Lookup by id/number/name: view_invoice, view_client, view_proposal, view_booking, view_deal\n    - Mutations: create_invoice, create_proposal, create_client, create_contact, record_payment, send_invoice, create_deal, move_deal_stage, log_deal_activity, etc.\n    - Capability/help: what_every_does for \"what can Every do?\", get_home for onboarding/welcome.\n\n    USE THIS TOOL ONLY for analytical questions that span multiple data points and have no\n    direct tool \u2014 e.g. \"what's my revenue this quarter?\", \"which clients have the most\n    overdue invoices?\", \"summarize my pipeline this month\". It is read-only: writes,\n    drafts, sends, deletes, and external MCP actions are refused. For changes, use the\n    specific write tools (create_invoice, record_payment, send_invoice, create_deal,\n    move_deal_stage, log_deal_activity, etc.).\n\n    Simple questions answer in seconds on a warm conversation; complex analytical\n    questions can take a minute or more, so keep first questions focused. Follow-up\n    questions asked within about 30 minutes reuse the same conversation thread, so you\n    can ask naturally without repeating earlier context.\n    ",
+  "inputSchema": {
+   "properties": {
+    "message": {
+     "title": "Message",
+     "type": "string",
+     "description": "Fallback question for analysis that spans multiple data points (e.g. revenue, pipeline summaries, cross-entity rollups). Prefer specific tools \u2014 list_*, view_*, create_*, what_every_does, get_home \u2014 when one fits the request."
+    }
+   },
+   "required": [
+    "message"
+   ],
+   "title": "ask_assistantArguments",
+   "type": "object"
+  },
+  "outputSchema": {
+   "properties": {
+    "result": {
+     "title": "Result",
+     "type": "string"
+    }
+   },
+   "required": [
+    "result"
+   ],
+   "title": "ask_assistantOutput",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "openWorldHint": false
+  },
+  "_meta": {
+   "openai/toolInvocation/invoking": "Asking your Every assistant...",
+   "openai/toolInvocation/invoked": "Assistant answered"
+  }
+ }
+]
