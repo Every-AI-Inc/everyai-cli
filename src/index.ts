@@ -15,6 +15,14 @@ import {
   toolsDescribeCommand,
   toolsListCommand,
 } from './commands/tools.js';
+import {
+  contactListCommand,
+  dealListCommand,
+  dealMoveCommand,
+  invoiceListCommand,
+  invoiceSendCommand,
+} from './commands/aliases.js';
+import { skillsInstallCommand, skillsListCommand } from './commands/skills.js';
 import { CliError } from './lib/errors.js';
 import { emit, emitError } from './lib/output.js';
 import { ExitCode } from './lib/exit-codes.js';
@@ -152,18 +160,24 @@ function collectOption(value: string, previous: string[]): string[] {
   return previous;
 }
 
-withGlobalOptions(
-  toolCommand
-    .command('call')
-    .description('Call an MCP tool with JSON arguments')
-    .argument('<name>', 'tool name')
+function withToolExecutionOptions(cmd: Command): Command {
+  return cmd
     .option('--no-cache', 'bypass and rewrite the local tool registry cache')
-    .option('--args <file>', 'JSON object file to use for tool arguments; use - for stdin')
-    .option('--arg <k=v>', 'overlay one argument value; value is parsed as JSON when possible', collectOption, [])
     .option('--yes', 'confirm write or AI-mediated tool calls')
     .option('--allow-destructive', 'allow destructive tool calls when combined with --yes')
     .option('--read-only', 'deny write, destructive, and AI-mediated tool calls')
-    .option('--timeout <secs>', 'tool call timeout in seconds'),
+    .option('--timeout <secs>', 'tool call timeout in seconds');
+}
+
+withGlobalOptions(
+  withToolExecutionOptions(
+    toolCommand
+    .command('call')
+    .description('Call an MCP tool with JSON arguments')
+    .argument('<name>', 'tool name')
+    .option('--args <file>', 'JSON object file to use for tool arguments; use - for stdin')
+    .option('--arg <k=v>', 'overlay one argument value; value is parsed as JSON when possible', collectOption, [])
+  ),
 ).action(async (name: string, _options: unknown, command: Command) => {
   const opts = command.optsWithGlobals();
   await toolCallCommand(name, {
@@ -179,6 +193,144 @@ withGlobalOptions(
   });
 });
 
+const invoiceCommand = withToolExecutionOptions(
+  withGlobalOptions(
+    program
+      .command('invoice')
+      .description('Work with invoices')
+      .addHelpText(
+        'after',
+        '\nCreate invoices with line items using: every tool call create_invoice --args <file>\n',
+      ),
+  ),
+);
+
+withGlobalOptions(
+  withToolExecutionOptions(
+    invoiceCommand
+      .command('list')
+      .description('List invoices')
+      .option('--status <s>', 'invoice or payment status filter')
+      .option('--search <q>', 'invoice search query')
+      .option('--limit <n>', 'maximum number of invoices to return'),
+  ),
+).action(async (_options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await invoiceListCommand({
+    json: opts.json,
+    staging: opts.staging,
+    noCache: opts.noCache,
+    yes: opts.yes,
+    allowDestructive: opts.allowDestructive,
+    readOnly: opts.readOnly,
+    timeout: opts.timeout,
+    status: opts.status,
+    search: opts.search,
+    limit: opts.limit,
+  });
+});
+
+withGlobalOptions(
+  withToolExecutionOptions(
+    invoiceCommand
+      .command('send')
+      .description('Send an invoice')
+      .argument('<invoice_id>', 'invoice id'),
+  ),
+).action(async (invoiceId: string, _options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await invoiceSendCommand(invoiceId, {
+    json: opts.json,
+    staging: opts.staging,
+    noCache: opts.noCache,
+    yes: opts.yes,
+    allowDestructive: opts.allowDestructive,
+    readOnly: opts.readOnly,
+    timeout: opts.timeout,
+  });
+});
+
+const dealCommand = withToolExecutionOptions(
+  withGlobalOptions(
+    program.command('deal').description('Work with deals'),
+  ),
+);
+
+withGlobalOptions(
+  withToolExecutionOptions(
+    dealCommand
+      .command('list')
+      .description('List deals')
+      .option('--stage <s>', 'deal stage filter')
+      .option('--search <q>', 'deal search query')
+      .option('--limit <n>', 'maximum number of deals to return'),
+  ),
+).action(async (_options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await dealListCommand({
+    json: opts.json,
+    staging: opts.staging,
+    noCache: opts.noCache,
+    yes: opts.yes,
+    allowDestructive: opts.allowDestructive,
+    readOnly: opts.readOnly,
+    timeout: opts.timeout,
+    stage: opts.stage,
+    search: opts.search,
+    limit: opts.limit,
+  });
+});
+
+withGlobalOptions(
+  withToolExecutionOptions(
+    dealCommand
+      .command('move')
+      .description('Move a deal to another stage')
+      .argument('<deal_id>', 'deal id')
+      .argument('<stage>', 'target stage'),
+  ),
+).action(async (dealId: string, stage: string, _options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await dealMoveCommand(dealId, stage, {
+    json: opts.json,
+    staging: opts.staging,
+    noCache: opts.noCache,
+    yes: opts.yes,
+    allowDestructive: opts.allowDestructive,
+    readOnly: opts.readOnly,
+    timeout: opts.timeout,
+  });
+});
+
+const contactCommand = withToolExecutionOptions(
+  withGlobalOptions(
+    program.command('contact').description('Work with contacts'),
+  ),
+);
+
+withGlobalOptions(
+  withToolExecutionOptions(
+    contactCommand
+      .command('list')
+      .description('List contacts')
+      .option('--search <q>', 'contact name search query')
+      .option('--limit <n>', 'maximum number of contacts to return'),
+  ),
+).action(async (_options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await contactListCommand({
+    json: opts.json,
+    staging: opts.staging,
+    noCache: opts.noCache,
+    yes: opts.yes,
+    allowDestructive: opts.allowDestructive,
+    readOnly: opts.readOnly,
+    timeout: opts.timeout,
+    search: opts.search,
+    limit: opts.limit,
+  });
+});
+
 const policyCommand = withGlobalOptions(
   program.command('policy').description('Explain local tool safety policy'),
 );
@@ -191,6 +343,41 @@ withGlobalOptions(
 ).action(async (name: string, _options: unknown, command: Command) => {
   const opts = command.optsWithGlobals();
   await policyExplainCommand(name, { json: opts.json, staging: opts.staging });
+});
+
+const skillsCommand = withGlobalOptions(
+  program.command('skills').description('Install bundled Every agent skills'),
+);
+
+withGlobalOptions(
+  skillsCommand
+    .command('list')
+    .description('List bundled skills and install locations')
+    .option('--global', 'show global install locations')
+    .option('--dir <path>', 'override the destination root'),
+).action(async (_options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await skillsListCommand({
+    json: opts.json,
+    global: opts.global,
+    dir: opts.dir,
+  });
+});
+
+withGlobalOptions(
+  skillsCommand
+    .command('install')
+    .description('Install a bundled skill for an agent target')
+    .argument('<target>', 'agent target: claude or codex')
+    .option('--global', 'install into the global target skill directory')
+    .option('--dir <path>', 'override the destination root'),
+).action(async (target: string, _options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await skillsInstallCommand(target, {
+    json: opts.json,
+    global: opts.global,
+    dir: opts.dir,
+  });
 });
 
 const CLEAN_EXIT_CODES = new Set([

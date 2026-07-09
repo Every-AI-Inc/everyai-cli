@@ -415,4 +415,90 @@ describe('CLI contract', () => {
       await rm(configDir, { recursive: true, force: true });
     }
   });
+
+  it.each([
+    [
+      ['invoice', 'list', '--status', 'overdue', '--search', 'acme', '--limit', '3', '--json'],
+      { name: 'list_invoices', arguments: { payment_status: 'overdue', search: 'acme', limit: 3 } },
+    ],
+    [
+      ['invoice', 'send', 'inv_123', '--yes', '--allow-destructive', '--json'],
+      { name: 'send_invoice', arguments: { invoice_id: 'inv_123' } },
+    ],
+    [
+      ['deal', 'list', '--stage', 'opportunity', '--search', 'acme', '--limit', '4', '--json'],
+      { name: 'list_deals', arguments: { stage: 'opportunity', search: 'acme', limit: 4 } },
+    ],
+    [
+      ['deal', 'move', 'deal_123', 'won', '--yes', '--json'],
+      { name: 'move_deal_stage', arguments: { deal_id: 'deal_123', stage: 'won' } },
+    ],
+    [
+      ['contact', 'list', '--search', 'Brandon', '--limit', '2', '--json'],
+      { name: 'list_contacts', arguments: { name: 'Brandon', limit: 2 } },
+    ],
+  ])('maps alias %s to the expected tool call', async (args, expectedCall) => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli(args, mockEnv(server, configDir));
+
+      expect(result.code).toBe(0);
+      expect(result.stderr).toBe('');
+      expect(parseJsonStdout(result.stdout)).toMatchObject({
+        ok: true,
+        data: {
+          tool: expectedCall.name,
+          is_error: false,
+          structured_content: { received: expectedCall.arguments },
+        },
+      });
+      expect(server.toolCalls).toEqual([expectedCall]);
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the destructive gate on invoice send aliases', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli(['invoice', 'send', 'inv_123', '--json'], mockEnv(server, configDir));
+
+      expect(result.code).toBe(4);
+      expect(result.stderr).toBe('');
+      expect(parseJsonStdout(result.stdout)).toMatchObject({
+        ok: false,
+        error: { code: 'permission' },
+      });
+      expect(server.toolCalls).toHaveLength(0);
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('renders the same JSON envelope for an alias and equivalent tool call', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const env = mockEnv(server, configDir);
+      const alias = await runCli(
+        ['deal', 'list', '--stage', 'lead', '--limit', '2', '--json'],
+        env,
+      );
+      const direct = await runCli(
+        ['tool', 'call', 'list_deals', '--arg', 'stage=lead', '--arg', 'limit=2', '--json'],
+        env,
+      );
+
+      expect(alias.code).toBe(0);
+      expect(direct.code).toBe(0);
+      expect(parseJsonStdout(alias.stdout)).toEqual(parseJsonStdout(direct.stdout));
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
 });

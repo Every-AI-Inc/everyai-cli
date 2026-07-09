@@ -1,39 +1,22 @@
 import { readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
 const enabled = process.env.EVERYAI_MOCK_MCP === '1';
 const baseUrl = process.env.EVERY_MCP_URL ?? 'https://mock-mcp.everyai.test';
 const stateFile = process.env.EVERYAI_MOCK_MCP_STATE;
 const originalFetch = globalThis.fetch;
 
+const fixturePath = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+  'fixtures',
+  'tools-alias-schemas.json',
+);
+const aliasTools = JSON.parse(readFileSync(fixturePath, 'utf8'));
+
 const tools = [
-  {
-    name: 'list_invoices',
-    title: 'List invoices',
-    description: 'List invoices.',
-    inputSchema: { type: 'object' },
-    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
-  },
-  {
-    name: 'create_invoice',
-    title: 'Create invoice',
-    description: 'Create an invoice.',
-    inputSchema: { type: 'object' },
-    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-  },
-  {
-    name: 'send_invoice',
-    title: 'Send invoice',
-    description: 'Send an invoice.',
-    inputSchema: { type: 'object' },
-    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
-  },
-  {
-    name: 'ask_assistant',
-    title: 'Ask assistant',
-    description: 'Ask Every AI.',
-    inputSchema: { type: 'object' },
-    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
-  },
+  ...aliasTools,
   {
     name: 'tool_error',
     title: 'Tool error',

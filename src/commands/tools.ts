@@ -37,6 +37,9 @@ export interface ToolCallOptions extends BaseCommandOptions {
 }
 
 type ClassifiedTool = McpTool & { classification: Classification };
+type ArgsFactory = () => Promise<Record<string, unknown>>;
+
+export type ToolExecutionOptions = Omit<ToolCallOptions, 'args' | 'arg'>;
 
 function emitCommand<T>(data: T, human: string, opts: BaseCommandOptions): void {
   if (opts.json) emit(data, { json: true });
@@ -235,9 +238,10 @@ function toolCallHuman(result: {
   return parts.join('\n');
 }
 
-export async function toolCallCommand(
+export async function executeToolCall(
   name: string,
-  opts: ToolCallOptions = {},
+  opts: ToolExecutionOptions = {},
+  argsFactory: ArgsFactory = async () => ({}),
 ): Promise<void> {
   const baseUrl = resolveBaseUrl({ staging: opts.staging });
   const token = await getToken({ baseUrl });
@@ -264,7 +268,7 @@ export async function toolCallCommand(
     }
   }
 
-  const args = await assembleArgs(opts);
+  const args = await argsFactory();
   const result = await callTool(baseUrl, token, name, args, { timeoutMs: timeoutMs(opts.timeout) });
   const data = {
     tool: name,
@@ -279,4 +283,11 @@ export async function toolCallCommand(
   }
 
   emitCommand(data, toolCallHuman(data), opts);
+}
+
+export async function toolCallCommand(
+  name: string,
+  opts: ToolCallOptions = {},
+): Promise<void> {
+  await executeToolCall(name, opts, () => assembleArgs(opts));
 }
