@@ -69,7 +69,7 @@ export function conventionsBlock(): string {
     '  read: runs without confirmation',
     '  write: requires y/N interactively or --yes non-interactively',
     '  destructive: requires typed confirmation interactively or --yes --allow-destructive non-interactively',
-    '  ai-mediated: treated as write-capable because it routes to Every AI',
+    '  ai-mediated: server-enforced read-only, but gated because it routes through Every AI; prefer deterministic tools',
     '',
     'Argument forms:',
     '  every tool call <name> --arg k=v --arg count=2',

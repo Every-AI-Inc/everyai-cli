@@ -310,5 +310,161 @@
   "readOnly": true,
   "destructive": false,
   "openWorld": false
+ },
+ {
+  "name": "search_gmail_threads",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "get_gmail_thread",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "get_gmail_message",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "draft_email",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "send_email",
+  "readOnly": false,
+  "destructive": true,
+  "openWorld": true
+ },
+ {
+  "name": "list_calendar_events",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "check_calendar_availability",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "create_calendar_event",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": true
+ },
+ {
+  "name": "reschedule_calendar_event",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": true
+ },
+ {
+  "name": "cancel_calendar_event",
+  "readOnly": false,
+  "destructive": true,
+  "openWorld": true
+ },
+ {
+  "name": "check_booking_availability",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "create_booking",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": true
+ },
+ {
+  "name": "reschedule_booking",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": true
+ },
+ {
+  "name": "cancel_booking",
+  "readOnly": false,
+  "destructive": true,
+  "openWorld": false
+ },
+ {
+  "name": "list_prospects",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "view_prospect",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "network_summary",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "get_daily_brief",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "get_heartbeat_summary",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "get_financial_report",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "list_recurring_invoices",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "create_recurring_invoice",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "update_recurring_invoice",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "pause_recurring_invoice",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "resume_recurring_invoice",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "run_recurring_invoice_now",
+  "readOnly": false,
+  "destructive": true,
+  "openWorld": true
  }
 ]

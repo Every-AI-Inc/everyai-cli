@@ -22,13 +22,20 @@ function isOverridden(name: string): boolean {
   return (
     name === 'ask_assistant' ||
     name === 'record_payment' ||
-    /^delete_|^void_|^send_/.test(name)
+    name === 'run_recurring_invoice_now' ||
+    /^delete_|^void_|^send_|^cancel_/.test(name)
   );
+}
+
+function tool(name: string): FixtureTool {
+  const found = tools.find((candidate) => candidate.name === name);
+  expect(found, `missing ${name} from production fixture`).toBeDefined();
+  return found!;
 }
 
 describe('policy classification', () => {
   it('covers the full snapshotted live tool registry', () => {
-    expect(tools).toHaveLength(52);
+    expect(tools).toHaveLength(78);
   });
 
   it('classifies destructive name and financial-record overrides as destructive', () => {
@@ -66,6 +73,78 @@ describe('policy classification', () => {
       expect(classify(tool).level).not.toBe('read');
     }
   });
+
+  it('classifies the new Gmail tools correctly', () => {
+    for (const name of ['search_gmail_threads', 'get_gmail_thread', 'get_gmail_message']) {
+      expect(classify(tool(name))).toMatchObject({ level: 'read', source: 'annotation' });
+    }
+    expect(classify(tool('draft_email'))).toMatchObject({ level: 'write', source: 'annotation' });
+    expect(classify(tool('send_email'))).toMatchObject({
+      level: 'destructive',
+      source: 'override',
+    });
+  });
+
+  it('keeps non-destructive open-world calendar and booking actions at write', () => {
+    for (const name of [
+      'create_calendar_event',
+      'reschedule_calendar_event',
+      'create_booking',
+      'reschedule_booking',
+    ]) {
+      expect(tool(name)).toMatchObject({ readOnly: false, destructive: false, openWorld: true });
+      expect(classify(tool(name))).toMatchObject({ level: 'write', source: 'annotation' });
+    }
+  });
+
+  it('classifies cancel actions and immediate recurring invoice runs as destructive', () => {
+    for (const name of [
+      'cancel_calendar_event',
+      'cancel_booking',
+      'run_recurring_invoice_now',
+    ]) {
+      expect(classify(tool(name))).toMatchObject({
+        level: 'destructive',
+        source: 'override',
+      });
+    }
+  });
+
+  it('classifies the remaining new reads as free and recurring invoice mutations as writes', () => {
+    for (const name of [
+      'list_calendar_events',
+      'check_calendar_availability',
+      'check_booking_availability',
+      'list_prospects',
+      'view_prospect',
+      'network_summary',
+      'get_daily_brief',
+      'get_heartbeat_summary',
+      'get_financial_report',
+      'list_recurring_invoices',
+    ]) {
+      expect(classify(tool(name))).toMatchObject({ level: 'read', source: 'annotation' });
+    }
+
+    for (const name of [
+      'create_recurring_invoice',
+      'update_recurring_invoice',
+      'pause_recurring_invoice',
+      'resume_recurring_invoice',
+    ]) {
+      expect(classify(tool(name))).toMatchObject({ level: 'write', source: 'annotation' });
+    }
+  });
+
+  it('explains high-risk tools correctly without annotation metadata', () => {
+    expect(classify({ name: 'send_email' })).toMatchObject({ level: 'destructive', source: 'override' });
+    expect(classify({ name: 'draft_email' })).toMatchObject({ level: 'write', source: 'annotation' });
+    expect(classify({ name: 'cancel_booking' })).toMatchObject({ level: 'destructive', source: 'override' });
+    expect(classify({ name: 'run_recurring_invoice_now' })).toMatchObject({
+      level: 'destructive',
+      source: 'override',
+    });
+  });
 });
 
 describe('policy requirements', () => {
@@ -76,6 +155,13 @@ describe('policy requirements', () => {
     });
     expect(requirementFor('write', { interactive: false, yes: true })).toEqual({
       allowed: true,
+    });
+  });
+
+  it('describes ask_assistant as server-enforced read-only', () => {
+    expect(requirementFor('ai-mediated', { interactive: false })).toMatchObject({
+      allowed: false,
+      denialMessage: expect.stringContaining('server-enforced read-only'),
     });
   });
 

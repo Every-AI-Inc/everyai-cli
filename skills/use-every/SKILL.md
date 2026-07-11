@@ -126,6 +126,28 @@ every invoice send <invoice_id> --yes --allow-destructive --json
 every invoice send <invoice_id> --yes --allow-destructive --json
 ```
 
+### Gmail is draft-first
+
+Prefer `draft_email` so the user can review recipients and copy. `send_email` sends immediately from the user's own mailbox; use it only after explicit approval with both destructive flags.
+
+### Calendar and booking ownership
+
+Calendar tools operate on the user's personal calendar. Confirm attendees and timezone before creating; reschedules and cancellations can notify attendees according to `send_updates`, so state that effect before acting.
+
+Booking create, reschedule, and cancel tools are owner-actions. Resolve the booking and check availability first, then confirm the customer-visible time change or cancellation before executing it.
+
+### Prospecting reads
+
+Use `list_prospects`, `view_prospect`, and `network_summary` to research the user's network. Treat the returned personal and relationship context as private; these tools do not contact prospects.
+
+### Stored briefs and reports
+
+`get_daily_brief` and `get_heartbeat_summary` read stored artifacts for the authenticated caller only; do not imply they regenerate or share a brief. Use `get_financial_report` for the server-computed financial view and preserve its reported period and currency.
+
+### Recurring invoices
+
+List and inspect recurring invoices before changing their schedule or status. Creating, updating, pausing, and resuming are writes; `run_recurring_invoice_now` is destructive because it may auto-send an invoice email when that schedule is configured to send.
+
 ### Complete money totals
 
 For invoice counts or money totals, filter `overdue` and `issued` separately and paginate until every result is fetched. Never total one default page; it gives confidently wrong numbers. Use the full tool so you can increment `offset` by `limit` until a page returns fewer records than the limit:

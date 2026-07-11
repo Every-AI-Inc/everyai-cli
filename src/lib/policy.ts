@@ -63,15 +63,16 @@ function overrideClassification(name: string): Classification | undefined {
       level: 'ai-mediated',
       source: 'override',
       reason:
-        'ask_assistant routes to a write-capable Every AI agent despite its read-only annotation.',
+        'ask_assistant is server-enforced read-only, but AI-mediated; prefer deterministic tools when available.',
     };
   }
 
-  if (/^delete_|^void_/.test(name)) {
+  if (/^delete_|^void_|^cancel_/.test(name)) {
     return {
       level: 'destructive',
       source: 'override',
-      reason: 'Tool name matches delete_/void_, which can remove or void account records.',
+      reason:
+        'Tool name matches delete_/void_/cancel_, which can remove, void, or cancel account records.',
     };
   }
 
@@ -88,6 +89,14 @@ function overrideClassification(name: string): Classification | undefined {
       level: 'destructive',
       source: 'override',
       reason: 'record_payment changes financial records.',
+    };
+  }
+
+  if (name === 'run_recurring_invoice_now') {
+    return {
+      level: 'destructive',
+      source: 'override',
+      reason: 'Running a recurring invoice now may immediately send an invoice email.',
     };
   }
 
@@ -120,9 +129,9 @@ export function classify(tool: PolicyTool): Classification {
 
   if (openWorld) {
     return {
-      level: 'destructive',
+      level: 'write',
       source: 'annotation',
-      reason: 'Tool annotation marks it open-world and not read-only.',
+      reason: 'Tool annotation marks it open-world and not read-only; defaulting to write.',
     };
   }
 
@@ -141,7 +150,7 @@ function readOnlyDenial(level: PolicyLevel): string {
 }
 
 function aiMediatedExplanation(): string {
-  return "This tool sends your request to Every's AI agent, which can take actions on your account; it is not mechanically read-only.";
+  return "This tool is server-enforced read-only, but routes through Every's AI agent; prefer deterministic tools when available.";
 }
 
 export function requirementFor(
@@ -159,9 +168,10 @@ export function requirementFor(
     if (interactive) return { allowed: true, prompt: 'confirm' };
 
     const prefix = level === 'ai-mediated' ? `${aiMediatedExplanation()} ` : '';
+    const action = level === 'ai-mediated' ? 'AI-mediated request' : 'write';
     return {
       allowed: false,
-      denialMessage: `${prefix}Re-run with --yes to confirm this write.`,
+      denialMessage: `${prefix}Re-run with --yes to confirm this ${action}.`,
     };
   }
 

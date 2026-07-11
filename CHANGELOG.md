@@ -1,5 +1,13 @@
 # @everyai/cli
 
+## Unreleased
+
+### Minor Changes
+
+- Prepared the CLI for the 78-tool admin-MCP surface: Gmail, calendar, booking, prospecting, daily brief and heartbeat, financial reporting, and recurring invoice workflows.
+- Updated local policy gates so reads run freely, ordinary writes (including non-destructive open-world actions) require `--yes`, and sends, cancellations, and immediate recurring-invoice runs require `--yes --allow-destructive`.
+- Added concise agent guidance for the new domains and clarified that `ask_assistant` is server-enforced read-only while deterministic tools remain preferred.
+
 ## 0.3.0
 
 ### Minor Changes

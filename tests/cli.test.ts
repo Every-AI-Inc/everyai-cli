@@ -746,6 +746,37 @@ describe('CLI contract', () => {
   });
 
   it.each([
+    ['send_email', 'destructive', 'override'],
+    ['draft_email', 'write', 'annotation'],
+    ['cancel_booking', 'destructive', 'override'],
+    ['run_recurring_invoice_now', 'destructive', 'override'],
+  ])(
+    'explains %s policy correctly without cached server metadata',
+    async (toolName, level, source) => {
+      const configDir = await tempConfig();
+      try {
+        const result = await runCli(['policy', 'explain', toolName, '--json'], {
+          EVERY_CONFIG_DIR: configDir,
+          EVERY_TOKEN: '',
+        });
+
+        expect(result.code).toBe(0);
+        expect(result.stderr).toBe('');
+        expect(parseJsonStdout(result.stdout)).toMatchObject({
+          ok: true,
+          data: {
+            tool: toolName,
+            level,
+            source,
+          },
+        });
+      } finally {
+        await rm(configDir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.each([
     [
       ['invoice', 'list', '--status', 'overdue', '--search', 'acme', '--limit', '3', '--json'],
       { name: 'list_invoices', arguments: { payment_status: 'overdue', search: 'acme', limit: 3 } },
