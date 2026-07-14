@@ -2,9 +2,12 @@ import { describe, it, expect, afterEach } from 'vitest';
 import {
   CONFIG_DIR,
   getConfigDir,
+  PROD_SIGNUP_URL,
   resolveBaseUrl,
   PROD_BASE_URL,
+  signupUrlForBaseUrl,
   STAGING_BASE_URL,
+  STAGING_SIGNUP_URL,
 } from '../src/lib/config';
 
 const ORIGINAL = {
@@ -77,5 +80,23 @@ describe('getConfigDir', () => {
     process.env.EVERY_CONFIG_DIR = '/tmp/every-config';
     process.env.XDG_CONFIG_HOME = '/tmp/xdg-config';
     expect(getConfigDir()).toBe('/tmp/every-config');
+  });
+});
+
+describe('signupUrlForBaseUrl', () => {
+  it('returns the production signup URL for the production base URL', () => {
+    expect(signupUrlForBaseUrl(PROD_BASE_URL)).toBe(PROD_SIGNUP_URL);
+    expect(signupUrlForBaseUrl(PROD_BASE_URL)).toBe('https://app.every.ai/sign-up');
+  });
+
+  it('returns the staging signup URL for the staging base URL', () => {
+    expect(signupUrlForBaseUrl(STAGING_BASE_URL)).toBe(STAGING_SIGNUP_URL);
+    expect(signupUrlForBaseUrl(STAGING_BASE_URL)).toBe(
+      'https://app.staging.every.ai/sign-up',
+    );
+  });
+
+  it('returns the production signup URL for a custom base URL', () => {
+    expect(signupUrlForBaseUrl('http://localhost:9999')).toBe(PROD_SIGNUP_URL);
   });
 });

@@ -238,6 +238,16 @@ describe('CLI contract', () => {
     expect((parsed.data as { help: string }).help).toContain('Usage: every');
   });
 
+  it('documents account creation in login help', async () => {
+    const result = await runCli(['login', '--help']);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout + result.stderr).toContain('--create-account');
+    expect(result.stdout + result.stderr).toContain(
+      'Log in (or create an account) with browser-based OAuth and store tokens locally',
+    );
+  });
+
   it('keeps non-TTY bare invocation on the plain help path', async () => {
     const result = await runCli([]);
 
@@ -271,6 +281,9 @@ describe('CLI contract', () => {
     const parsed = parseJsonStdout(json.stdout);
     expect(parsed).toMatchObject({ ok: true, env: 'production' });
     expect((parsed.data as { commands: string }).commands).toContain('every tools list');
+    expect((parsed.data as { commands: string }).commands).toContain(
+      'every login --create-account',
+    );
     expect((parsed.data as { conventions: string }).conventions).toContain('--staging');
     expect((parsed.data as { workflows: string }).workflows).toContain('Invoice flow:');
   });

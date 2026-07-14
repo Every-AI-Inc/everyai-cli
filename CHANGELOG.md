@@ -1,6 +1,16 @@
 # @everyai/cli
 
-## Unreleased
+## Unreleased (0.5.0)
+
+### Minor Changes
+
+- Added logged-out account menus to bare `every` and `every login`, plus `every login --create-account`, which deep-links to the correct signup page and automatically connects the CLI after browser signup.
+
+### Patch Changes
+
+- Fixed the bare-`every` first-run menu never appearing: commander's empty-args help short-circuited before the menu could run, so logged-out users went straight to help text.
+
+## 0.4.0
 
 ### Minor Changes
 

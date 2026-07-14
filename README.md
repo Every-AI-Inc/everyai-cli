@@ -7,7 +7,7 @@ Install once, log in once, and teach each coding agent the same `every` command 
 ```bash
 npm install -g @everyai/cli
 every docs                         # offline command tree, output contract, workflows
-every login                        # opens your browser; tokens land in your OS keychain
+every login                        # pick "Create an account" if you're new — signup happens in the browser, then the CLI connects automatically
 every skills install claude|codex  # teach Claude Code or Codex how to use Every
 every whoami                       # user, org, environment, tool-count check
 ```
@@ -48,7 +48,7 @@ The CLI talks to the same Every MCP server (`admin-mcp.every.ai`) and inherits i
 
 ```bash
 # Auth
-every login [--staging]        # browser OAuth; keychain storage; refresh handled
+every login [--create-account] [--staging]  # browser OAuth; keychain storage; refresh handled
 every logout | whoami | auth status | org
 
 # Discovery
@@ -71,6 +71,10 @@ every contact list [--search <q>]
 every skills install claude    # → .claude/skills/use-every/
 every skills install codex     # → .agents/skills/use-every/
 ```
+
+## Login and account creation
+
+Run `every login` to choose between logging in and creating an account, or use `every login --create-account` to open Every's signup page directly. After you create your account and workspace, return to the terminal and press Enter; the CLI connects through the normal browser OAuth flow.
 
 ## Output contract
 

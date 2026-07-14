@@ -190,4 +190,28 @@ describe('post-login skill offer', () => {
     expect(stdout.text()).toBe('');
     expect(stderr.text()).toBe('');
   });
+
+  it('stays silent when prompting to a redirected process.stderr (not a TTY)', async () => {
+    const fileSystem: SkillOfferFileSystem = {
+      pathExists: vi.fn(),
+      readHints: vi.fn(),
+      writeHints: vi.fn(),
+    };
+    const stderrSpy = vi
+      .spyOn(process, 'stderr', 'get')
+      .mockReturnValue(outputCapture(false).output as typeof process.stderr);
+    try {
+      await maybeOfferSkillAfterLogin({
+        input: ttyInput('1\n'),
+        output: outputCapture().output,
+        errorOutput: process.stderr,
+        fileSystem,
+        installSkill: vi.fn(),
+      });
+    } finally {
+      stderrSpy.mockRestore();
+    }
+
+    expect(fileSystem.readHints).not.toHaveBeenCalled();
+  });
 });
