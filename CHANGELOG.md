@@ -1,6 +1,6 @@
 # @everyai/cli
 
-## Unreleased (0.5.0)
+## 0.5.0
 
 ### Minor Changes
 
