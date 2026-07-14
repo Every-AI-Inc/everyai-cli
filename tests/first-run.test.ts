@@ -20,47 +20,103 @@ function outputCapture(): { output: Writable; text: () => string } {
 }
 
 describe('first-run menu', () => {
-  it('choice 2 shows help without logging in', async () => {
+  it('renders separate login and create-account choices', async () => {
     const capture = outputCapture();
     const showHelp = vi.fn();
     const login = vi.fn();
+    const createAccount = vi.fn();
 
     await runFirstRunMenu({
-      input: input('2\n'),
+      input: input('4\n'),
       output: capture.output,
       showHelp,
       login,
+      createAccount,
       getStatus: async () => ({ logged_in: false }),
       getCachedIdentity: async () => undefined,
     });
 
     expect(capture.text()).toContain("Welcome to Every AI — you're not logged in.");
-    expect(showHelp).toHaveBeenCalledTimes(1);
+    expect(capture.text()).toContain('1) Log in — I already have an account (opens your browser)');
+    expect(capture.text()).toContain('2) Create an account');
+    expect(capture.text()).toContain('3) Show all commands');
+    expect(capture.text()).toContain('4) Exit');
+    expect(showHelp).not.toHaveBeenCalled();
     expect(login).not.toHaveBeenCalled();
+    expect(createAccount).not.toHaveBeenCalled();
   });
 
-  it('choice 3 exits without help or login', async () => {
+  it('choice 2 creates an account without logging in', async () => {
     const capture = outputCapture();
     const showHelp = vi.fn();
     const login = vi.fn();
+    const menuInput = input('2\n');
+    const createAccount = vi.fn(async () => {
+      expect(menuInput.listenerCount('data')).toBe(0);
+    });
 
     await runFirstRunMenu({
-      input: input('3\n'),
+      input: menuInput,
       output: capture.output,
       showHelp,
       login,
+      createAccount,
       getStatus: async () => ({ logged_in: false }),
       getCachedIdentity: async () => undefined,
     });
 
     expect(showHelp).not.toHaveBeenCalled();
     expect(login).not.toHaveBeenCalled();
+    expect(createAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it('choice 3 shows help without logging in or creating an account', async () => {
+    const capture = outputCapture();
+    const showHelp = vi.fn();
+    const login = vi.fn();
+    const createAccount = vi.fn();
+
+    await runFirstRunMenu({
+      input: input('3\n'),
+      output: capture.output,
+      showHelp,
+      login,
+      createAccount,
+      getStatus: async () => ({ logged_in: false }),
+      getCachedIdentity: async () => undefined,
+    });
+
+    expect(showHelp).toHaveBeenCalledTimes(1);
+    expect(login).not.toHaveBeenCalled();
+    expect(createAccount).not.toHaveBeenCalled();
+  });
+
+  it.each(['4', 'garbage'])('choice %s exits without taking an action', async (answer) => {
+    const capture = outputCapture();
+    const showHelp = vi.fn();
+    const login = vi.fn();
+    const createAccount = vi.fn();
+
+    await runFirstRunMenu({
+      input: input(`${answer}\n`),
+      output: capture.output,
+      showHelp,
+      login,
+      createAccount,
+      getStatus: async () => ({ logged_in: false }),
+      getCachedIdentity: async () => undefined,
+    });
+
+    expect(showHelp).not.toHaveBeenCalled();
+    expect(login).not.toHaveBeenCalled();
+    expect(createAccount).not.toHaveBeenCalled();
   });
 
   it('Enter invokes login by default', async () => {
     const capture = outputCapture();
     const showHelp = vi.fn();
     const menuInput = input('\n');
+    const createAccount = vi.fn();
     const login = vi.fn(async () => {
       expect(menuInput.listenerCount('data')).toBe(0);
     });
@@ -70,11 +126,13 @@ describe('first-run menu', () => {
       output: capture.output,
       showHelp,
       login,
+      createAccount,
       getStatus: async () => ({ logged_in: false }),
       getCachedIdentity: async () => undefined,
     });
 
     expect(login).toHaveBeenCalledTimes(1);
+    expect(createAccount).not.toHaveBeenCalled();
     expect(showHelp).not.toHaveBeenCalled();
   });
 
@@ -82,12 +140,14 @@ describe('first-run menu', () => {
     const capture = outputCapture();
     const showHelp = vi.fn(() => capture.output.write('HELP\n'));
     const login = vi.fn();
+    const createAccount = vi.fn();
 
     await runFirstRunMenu({
       input: input(''),
       output: capture.output,
       showHelp,
       login,
+      createAccount,
       getStatus: async () => ({ logged_in: true }),
       getCachedIdentity: async () => ({ email: 'person@example.com', org_name: 'Acme Co' }),
     });
@@ -96,5 +156,6 @@ describe('first-run menu', () => {
     expect(capture.text()).toContain('HELP');
     expect(showHelp).toHaveBeenCalledTimes(1);
     expect(login).not.toHaveBeenCalled();
+    expect(createAccount).not.toHaveBeenCalled();
   });
 });

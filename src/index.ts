@@ -88,10 +88,15 @@ withGlobalOptions(
 withGlobalOptions(
   program
     .command('login')
-    .description('Log in with browser-based OAuth and store tokens locally'),
+    .description('Log in (or create an account) with browser-based OAuth and store tokens locally')
+    .option('--create-account', 'create a new Every account, then connect the CLI'),
 ).action(async (_options: unknown, command: Command) => {
   const opts = command.optsWithGlobals();
-  await loginCommand({ json: opts.json, staging: opts.staging });
+  await loginCommand({
+    json: opts.json,
+    staging: opts.staging,
+    createAccount: opts.createAccount,
+  });
 });
 
 withGlobalOptions(
@@ -483,7 +488,8 @@ async function maybeRunFirstRunMenu(): Promise<boolean> {
   await runDefaultFirstRunMenu({
     staging: program.opts().staging,
     showHelp: () => program.outputHelp(),
-    login: () => loginCommand({ staging: program.opts().staging }),
+    login: () => loginCommand({ staging: program.opts().staging, skipMenu: true }),
+    createAccount: () => loginCommand({ staging: program.opts().staging, createAccount: true }),
   });
   return true;
 }
@@ -493,10 +499,14 @@ async function main(): Promise<void> {
   commanderStdout = '';
 
   try {
+    // Bare invocation must be handled BEFORE commander: with subcommands and no
+    // root action, parseAsync throws commander.help on empty args, so a menu
+    // call after it would never run.
+    if (await maybeRunFirstRunMenu()) return;
+
     await program.parseAsync(process.argv);
 
     if (program.args.length === 0) {
-      if (await maybeRunFirstRunMenu()) return;
       if (jsonMode) {
         emit({ help: program.helpInformation().trimEnd() }, { json: true });
       } else {

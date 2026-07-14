@@ -3,11 +3,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import type { Readable, Writable } from 'node:stream';
-import { environmentNameForBaseUrl, resolveBaseUrl } from '../lib/config.js';
+import {
+  environmentNameForBaseUrl,
+  resolveBaseUrl,
+  signupUrlForBaseUrl,
+} from '../lib/config.js';
 import { CliError } from '../lib/errors.js';
 import { ExitCode } from '../lib/exit-codes.js';
 import { mcpCall } from '../lib/mcp.js';
-import { loginFlow } from '../lib/auth/flow.js';
+import { loginFlow, openBrowser as openBrowserDefault } from '../lib/auth/flow.js';
 import { decodeJwtClaims } from '../lib/auth/jwt.js';
 import {
   AuthStatus,
@@ -117,11 +121,12 @@ export async function maybeOfferSkillAfterLogin(
   const output = opts.output ?? process.stdout;
   const errorOutput = opts.errorOutput ?? process.stderr;
 
+  const promptsToProcessStderr = opts.errorOutput === undefined || opts.errorOutput === process.stderr;
   if (
     opts.json ||
     input.isTTY !== true ||
     output.isTTY !== true ||
-    (opts.errorOutput === undefined && process.stderr.isTTY !== true)
+    (promptsToProcessStderr && process.stderr.isTTY !== true)
   ) return;
 
   try {
@@ -173,6 +178,16 @@ export async function maybeOfferSkillAfterLogin(
 export interface AuthCommandOptions {
   json?: boolean;
   staging?: boolean;
+  createAccount?: boolean;
+  skipMenu?: boolean;
+}
+
+export interface CreateAccountFlowOptions extends AuthCommandOptions {
+  input?: TtyReadable;
+  output?: TtyWritable;
+  errorOutput?: Writable;
+  openBrowser?: (url: string) => void | Promise<void>;
+  runLogin?: () => Promise<void>;
 }
 
 interface LoginResult {
@@ -240,13 +255,18 @@ function loginNextSteps(): string {
   ].join('\n');
 }
 
-function emitLogin(data: LoginResult, opts: AuthCommandOptions): void {
+function emitLogin(
+  data: LoginResult,
+  opts: AuthCommandOptions,
+  output: Writable = process.stdout,
+  errorOutput: Writable = process.stderr,
+): void {
   const human = `${loginHuman(data)}\n${loginNextSteps()}`;
   if (opts.json) {
     emit(data, { json: true, staging: opts.staging });
-    process.stderr.write(`${loginNextSteps()}\n`);
+    errorOutput.write(`${loginNextSteps()}\n`);
   } else {
-    process.stdout.write(`${human}\n`);
+    output.write(`${human}\n`);
   }
 }
 
@@ -311,6 +331,98 @@ async function verifyMcpLiveness(
   };
 }
 
+async function runBrowserLogin(
+  opts: AuthCommandOptions,
+  streams: {
+    input: TtyReadable;
+    output: TtyWritable;
+    errorOutput: Writable;
+  } = {
+    input: process.stdin,
+    output: process.stdout,
+    errorOutput: process.stderr,
+  },
+): Promise<void> {
+  const baseUrl = resolveBaseUrl({ staging: opts.staging });
+  const { environmentKey } = resolveAuthTarget({ baseUrl });
+  const tokenSet = await loginFlow({
+    baseUrl,
+    onAuthorizationUrl(url) {
+      streams.errorOutput.write(`Open this URL to log in:\n${url}\n`);
+    },
+  });
+
+  const store = await createTokenStore();
+  await store.set(environmentKey, tokenSet);
+
+  const identity = identityFromToken(tokenSet.access_token);
+  const data: LoginResult = {
+    logged_in: true,
+    issuer: tokenSet.issuer,
+    subject: identity.subject,
+    email: identity.email,
+    storage_backend: store.backend,
+    every_token: false,
+  };
+  emitLogin(data, opts, streams.output, streams.errorOutput);
+  await maybeOfferSkillAfterLogin({
+    json: opts.json,
+    input: streams.input,
+    output: streams.output,
+    errorOutput: streams.errorOutput,
+  });
+}
+
+export async function createAccountFlow(
+  opts: CreateAccountFlowOptions = {},
+): Promise<void> {
+  const input = opts.input ?? process.stdin;
+  const output = opts.output ?? process.stdout;
+  const errorOutput = opts.errorOutput ?? process.stderr;
+  const signupUrl = signupUrlForBaseUrl(resolveBaseUrl({ staging: opts.staging }));
+
+  errorOutput.write(
+    `Opening the Every sign-up page:\n  ${signupUrl}\nCreate your account and set up your workspace in the browser.\n`,
+  );
+  await (opts.openBrowser ?? openBrowserDefault)(signupUrl);
+
+  const rl = createInterface({ input, output: errorOutput, terminal: false });
+  try {
+    await rl.question("When you're done, press Enter to connect your terminal... ");
+  } finally {
+    rl.close();
+  }
+
+  const runLogin = opts.runLogin ?? (() => runBrowserLogin(opts, { input, output, errorOutput }));
+  await runLogin();
+}
+
+async function promptForLoggedOutAction(): Promise<'login' | 'createAccount'> {
+  process.stderr.write(
+    [
+      "You're not signed in to Every.",
+      '  1) Log in — I already have an account',
+      '  2) Create an account',
+    ].join('\n') + '\n',
+  );
+
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stderr,
+    terminal: false,
+  });
+  try {
+    const answer = (await rl.question('Choose [1]: ')).trim();
+    if (answer === '2') return 'createAccount';
+    if (answer !== '' && answer !== '1') {
+      process.stderr.write('Unrecognized choice; continuing with log in.\n');
+    }
+    return 'login';
+  } finally {
+    rl.close();
+  }
+}
+
 export async function loginCommand(opts: AuthCommandOptions = {}): Promise<void> {
   if (process.env.EVERY_TOKEN) {
     const identity = identityFromToken(process.env.EVERY_TOKEN);
@@ -334,29 +446,36 @@ export async function loginCommand(opts: AuthCommandOptions = {}): Promise<void>
     );
   }
 
+  if (opts.createAccount) {
+    // The pause-for-signup prompt reads stdin; a piped/closed stdin would hang there.
+    if (process.stdin.isTTY !== true) {
+      throw new CliError(
+        'create-account requires an interactive terminal; set EVERY_TOKEN for headless use',
+        ExitCode.AUTH,
+        'auth',
+      );
+    }
+    await createAccountFlow(opts);
+    return;
+  }
+
   const baseUrl = resolveBaseUrl({ staging: opts.staging });
-  const { environmentKey } = resolveAuthTarget({ baseUrl });
-  const tokenSet = await loginFlow({
-    baseUrl,
-    onAuthorizationUrl(url) {
-      process.stderr.write(`Open this URL to log in:\n${url}\n`);
-    },
-  });
+  if (
+    !opts.json &&
+    !opts.skipMenu &&
+    process.stdin.isTTY === true &&
+    process.stdout.isTTY === true &&
+    process.stderr.isTTY === true &&
+    !(await getAuthStatus({ baseUrl })).logged_in
+  ) {
+    const action = await promptForLoggedOutAction();
+    if (action === 'createAccount') {
+      await createAccountFlow(opts);
+      return;
+    }
+  }
 
-  const store = await createTokenStore();
-  await store.set(environmentKey, tokenSet);
-
-  const identity = identityFromToken(tokenSet.access_token);
-  const data: LoginResult = {
-    logged_in: true,
-    issuer: tokenSet.issuer,
-    subject: identity.subject,
-    email: identity.email,
-    storage_backend: store.backend,
-    every_token: false,
-  };
-  emitLogin(data, opts);
-  await maybeOfferSkillAfterLogin({ json: opts.json });
+  await runBrowserLogin(opts);
 }
 
 export async function logoutCommand(opts: AuthCommandOptions = {}): Promise<void> {

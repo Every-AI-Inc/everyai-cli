@@ -16,6 +16,8 @@ export function getConfigDir(): string {
 /** Deployed MCP base URLs. */
 export const PROD_BASE_URL = 'https://admin-mcp.every.ai';
 export const STAGING_BASE_URL = 'https://admin-mcp-staging.up.railway.app';
+export const PROD_SIGNUP_URL = 'https://app.every.ai/sign-up';
+export const STAGING_SIGNUP_URL = 'https://app.staging.every.ai/sign-up';
 export type EnvironmentName = 'production' | 'staging' | 'custom';
 
 export interface ResolveBaseUrlOptions {
@@ -52,4 +54,10 @@ export function environmentNameForBaseUrl(baseUrl: string): EnvironmentName {
   if (normalized === trimTrailingSlash(PROD_BASE_URL)) return 'production';
   if (normalized === trimTrailingSlash(STAGING_BASE_URL)) return 'staging';
   return 'custom';
+}
+
+export function signupUrlForBaseUrl(baseUrl: string): string {
+  return environmentNameForBaseUrl(baseUrl) === 'staging'
+    ? STAGING_SIGNUP_URL
+    : PROD_SIGNUP_URL;
 }
