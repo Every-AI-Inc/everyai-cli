@@ -1,6 +1,14 @@
 {
   "name": "@everyai/cli",
   "version": "0.6.1",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Every-AI-Inc/everyai-cli.git"
+  },
+  "homepage": "https://github.com/Every-AI-Inc/everyai-cli#readme",
+  "bugs": {
+    "url": "https://github.com/Every-AI-Inc/everyai-cli/issues"
+  },
   "private": false,
   "description": "The agent-agnostic command-line surface for Every AI.",
   "type": "module",
