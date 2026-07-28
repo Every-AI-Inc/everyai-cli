@@ -1,6 +1,6 @@
 ---
 name: use-every
-description: Drive the Every AI CLI (`every`) to manage the user's service business — invoices, clients, contacts, proposals, deals, pipeline, payments, services, and bookings. Use when the user asks “who owes me money?”, wants a lead or deal follow-up, asks to look up, create, update, convert, or send a business record, or mentions their Every workspace.
+description: Drive the Every AI CLI (`every`) to manage the user's service business — invoices, clients, contacts, proposals, deals, pipeline, payments, services, custom fields, and scheduled tasks. Use when the user asks “who owes me money?”, wants a lead or deal follow-up, asks to look up, create, update, convert, or send a business record, or mentions their Every workspace.
 ---
 
 # Use Every
@@ -13,7 +13,7 @@ For headless use, accept `EVERY_TOKEN` from the environment instead of browser l
 
 ## What Every Is
 
-Use Every as a service-business workspace for the sales pipeline, deals, contacts and clients, proposals, invoices, payments, services, and bookings. The authenticated CLI operates on one connected Every workspace at a time. If the user means a different business, tell them to switch accounts in Every.
+Use Every as a service-business workspace for the sales pipeline, deals, contacts and clients, proposals, invoices, payments, and services. The authenticated CLI operates on one connected Every workspace at a time. If the user means a different business, tell them to switch accounts in Every.
 
 ## Required Workflow
 
@@ -67,7 +67,7 @@ Use `every whoami --json` to verify the authenticated user, org, environment, ba
 
 ### Deal activity auto-tracking is creation-only
 
-Creating a proposal, invoice, or booking automatically records activity on a matching deal when exactly one deal/client matches. After an Every creation command, never double-log that action:
+Creating a proposal or invoice automatically records activity on a matching deal when exactly one deal/client matches. After an Every creation command, never double-log that action:
 
 ```bash
 every invoice create --client-id <client_id> --amount 100 --yes --json
@@ -130,11 +130,17 @@ every invoice send <invoice_id> --yes --allow-destructive --json
 
 Prefer `draft_email` so the user can review recipients and copy. `send_email` sends immediately from the user's own mailbox; use it only after explicit approval with both destructive flags.
 
-### Calendar and booking ownership
+### Calendar ownership
 
 Calendar tools operate on the user's personal calendar. Confirm attendees and timezone before creating; reschedules and cancellations can notify attendees according to `send_updates`, so state that effect before acting.
 
-Booking create, reschedule, and cancel tools are owner-actions. Resolve the booking and check availability first, then confirm the customer-visible time change or cancellation before executing it.
+### Custom fields are schema, not events
+
+`every tool call set_meta_fields ...` stores current state (e.g. a tracked boolean) on a contact, client, or deal; missing field definitions are created automatically, but check `every tool call list_meta_field_definitions --json` first and reuse an existing one when it fits. Something that *happened* (a call, visit, touchpoint) belongs in `log_deal_activity`, not a meta field. Tags are the `custom.tags` list field, not a separate feature.
+
+### Scheduled tasks report in-app, never in this session
+
+`every tool call create_scheduled_task ...` sets up a saved instruction that runs on a cadence (once/daily/weekly/monthly). Results and any notifications always arrive in the Every app (Daily Brief / notifications) and by email if enabled — never back in this CLI session, so don't tell the user to expect output here.
 
 ### Prospecting reads
 
@@ -170,7 +176,7 @@ every tool call view_deal --arg deal_id=<deal_id> --json
 every deal move <deal_id> <stage> --yes --json
 ```
 
-Recommend follow-ups before moving anything. Log only outside events the user reports; creation of proposals, invoices, and bookings is already tracked.
+Recommend follow-ups before moving anything. Log only outside events the user reports; creation of proposals and invoices is already tracked.
 
 Invoice flow: find who owes money:
 

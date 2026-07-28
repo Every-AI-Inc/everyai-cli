@@ -252,18 +252,6 @@
   "openWorld": false
  },
  {
-  "name": "list_bookings",
-  "readOnly": true,
-  "destructive": false,
-  "openWorld": false
- },
- {
-  "name": "view_booking",
-  "readOnly": true,
-  "destructive": false,
-  "openWorld": false
- },
- {
   "name": "list_deals",
   "readOnly": true,
   "destructive": false,
@@ -372,30 +360,6 @@
   "openWorld": true
  },
  {
-  "name": "check_booking_availability",
-  "readOnly": true,
-  "destructive": false,
-  "openWorld": false
- },
- {
-  "name": "create_booking",
-  "readOnly": false,
-  "destructive": false,
-  "openWorld": true
- },
- {
-  "name": "reschedule_booking",
-  "readOnly": false,
-  "destructive": false,
-  "openWorld": true
- },
- {
-  "name": "cancel_booking",
-  "readOnly": false,
-  "destructive": true,
-  "openWorld": false
- },
- {
   "name": "list_prospects",
   "readOnly": true,
   "destructive": false,
@@ -466,5 +430,83 @@
   "readOnly": false,
   "destructive": true,
   "openWorld": true
+ },
+ {
+  "name": "list_meta_field_definitions",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "create_meta_field_definition",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "update_meta_field_definition",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "get_meta_fields",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "set_meta_fields",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "find_entities_by_meta_field",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "list_scheduled_tasks",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "create_scheduled_task",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "cancel_scheduled_task",
+  "readOnly": false,
+  "destructive": true,
+  "openWorld": false
+ },
+ {
+  "name": "view_entity_timeline",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "get_pipeline_settings",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "get_entity_counts",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "approve_pending_deal",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
  }
 ]

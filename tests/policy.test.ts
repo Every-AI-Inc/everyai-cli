@@ -35,7 +35,7 @@ function tool(name: string): FixtureTool {
 
 describe('policy classification', () => {
   it('covers the full snapshotted live tool registry', () => {
-    expect(tools).toHaveLength(78);
+    expect(tools).toHaveLength(85);
   });
 
   it('classifies destructive name and financial-record overrides as destructive', () => {
@@ -85,12 +85,10 @@ describe('policy classification', () => {
     });
   });
 
-  it('keeps non-destructive open-world calendar and booking actions at write', () => {
+  it('keeps non-destructive open-world calendar actions at write', () => {
     for (const name of [
       'create_calendar_event',
       'reschedule_calendar_event',
-      'create_booking',
-      'reschedule_booking',
     ]) {
       expect(tool(name)).toMatchObject({ readOnly: false, destructive: false, openWorld: true });
       expect(classify(tool(name))).toMatchObject({ level: 'write', source: 'annotation' });
@@ -100,7 +98,7 @@ describe('policy classification', () => {
   it('classifies cancel actions and immediate recurring invoice runs as destructive', () => {
     for (const name of [
       'cancel_calendar_event',
-      'cancel_booking',
+      'cancel_scheduled_task',
       'run_recurring_invoice_now',
     ]) {
       expect(classify(tool(name))).toMatchObject({
@@ -114,7 +112,6 @@ describe('policy classification', () => {
     for (const name of [
       'list_calendar_events',
       'check_calendar_availability',
-      'check_booking_availability',
       'list_prospects',
       'view_prospect',
       'network_summary',
@@ -122,6 +119,13 @@ describe('policy classification', () => {
       'get_heartbeat_summary',
       'get_financial_report',
       'list_recurring_invoices',
+      'list_meta_field_definitions',
+      'get_meta_fields',
+      'find_entities_by_meta_field',
+      'list_scheduled_tasks',
+      'view_entity_timeline',
+      'get_pipeline_settings',
+      'get_entity_counts',
     ]) {
       expect(classify(tool(name))).toMatchObject({ level: 'read', source: 'annotation' });
     }
@@ -131,15 +135,26 @@ describe('policy classification', () => {
       'update_recurring_invoice',
       'pause_recurring_invoice',
       'resume_recurring_invoice',
+      'create_meta_field_definition',
+      'update_meta_field_definition',
+      'set_meta_fields',
+      'create_scheduled_task',
     ]) {
       expect(classify(tool(name))).toMatchObject({ level: 'write', source: 'annotation' });
     }
   });
 
+  it('pins approve_pending_deal to write via a local override, independent of server annotations', () => {
+    expect(classify(tool('approve_pending_deal'))).toMatchObject({ level: 'write', source: 'override' });
+    // Even with no annotation metadata at all — the override doesn't depend on the server
+    // continuing to send destructiveHint:false.
+    expect(classify({ name: 'approve_pending_deal' })).toMatchObject({ level: 'write', source: 'override' });
+  });
+
   it('explains high-risk tools correctly without annotation metadata', () => {
     expect(classify({ name: 'send_email' })).toMatchObject({ level: 'destructive', source: 'override' });
     expect(classify({ name: 'draft_email' })).toMatchObject({ level: 'write', source: 'annotation' });
-    expect(classify({ name: 'cancel_booking' })).toMatchObject({ level: 'destructive', source: 'override' });
+    expect(classify({ name: 'cancel_scheduled_task' })).toMatchObject({ level: 'destructive', source: 'override' });
     expect(classify({ name: 'run_recurring_invoice_now' })).toMatchObject({
       level: 'destructive',
       source: 'override',

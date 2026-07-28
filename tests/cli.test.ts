@@ -761,8 +761,9 @@ describe('CLI contract', () => {
   it.each([
     ['send_email', 'destructive', 'override'],
     ['draft_email', 'write', 'annotation'],
-    ['cancel_booking', 'destructive', 'override'],
+    ['cancel_scheduled_task', 'destructive', 'override'],
     ['run_recurring_invoice_now', 'destructive', 'override'],
+    ['approve_pending_deal', 'write', 'override'],
   ])(
     'explains %s policy correctly without cached server metadata',
     async (toolName, level, source) => {
