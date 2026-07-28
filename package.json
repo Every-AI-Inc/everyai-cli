@@ -1,6 +1,6 @@
 {
   "name": "@everyai/cli",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": false,
   "description": "The agent-agnostic command-line surface for Every AI.",
   "type": "module",
@@ -18,7 +18,7 @@
   },
   "publishConfig": {
     "access": "public",
-    "provenance": false
+    "provenance": true
   },
   "scripts": {
     "build": "tsc",

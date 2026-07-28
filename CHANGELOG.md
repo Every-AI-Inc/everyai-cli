@@ -1,5 +1,13 @@
 # @everyai/cli
 
+## 0.6.1
+
+### Patch Changes
+
+- Publish with a provenance attestation.
+
+  The repository is now public, which npm requires before it will accept a provenance attestation. Every release from here carries a signed, publicly verifiable link from the tarball on npm back to the exact commit and CI run that produced it — check it with `npm audit signatures`.
+
 ## 0.6.0
 
 ### Minor Changes
