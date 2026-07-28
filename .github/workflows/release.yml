@@ -24,7 +24,8 @@ jobs:
           registry-url: https://registry.npmjs.org
       # Trusted publishing (OIDC) requires npm >= 11.5.1; Node 20 ships npm 10.x,
       # which detects OIDC but cannot exchange the token (fails ENEEDAUTH).
-      - run: npm install -g npm@latest
+      # Pinned to 11.x: npm@latest is 12.x and requires Node 22+.
+      - run: npm install -g npm@^11.5.1
       - run: npm ci
       - run: npm run build
       # Opens/updates the "Version Packages" PR, and publishes with provenance
