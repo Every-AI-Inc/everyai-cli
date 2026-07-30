@@ -18,8 +18,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # changeset version writes a commit; without full history the push back
-          # to main is rejected as a non-fast-forward.
+          # Three reasons, all load-bearing:
+          #  1. the default is --depth=1, and pushing a commit with truncated
+          #     history is rejected with "shallow update not allowed";
+          #  2. it fetches all tags, which is what makes the tag-exists check below
+          #     meaningful;
+          #  3. NOT for changelog generation -- this config uses
+          #     @changesets/cli/changelog, which reads no git history.
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
@@ -48,7 +53,11 @@ jobs:
       - name: Version, publish, and push the bump back
         run: |
           set -euo pipefail
-          if [ -z "$(ls -A .changeset/*.md 2>/dev/null | grep -v README.md || true)" ]; then
+          # Exact-match README.md. `grep -v README.md` treated `.` as a regex
+          # wildcard and matched unanchored against the full path, so a changeset
+          # named READMEXmd.md or README.md.md was silently skipped -- a release
+          # that quietly never happens.
+          if [ -z "$(find .changeset -maxdepth 1 -name '*.md' ! -name 'README.md' -print -quit 2>/dev/null)" ]; then
             echo "No changesets pending — nothing to release."
             exit 0
           fi
@@ -56,14 +65,37 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           npx changeset version
           VERSION="$(node -p 'require("./package.json").version')"
-          # Publish BEFORE pushing the bump: if the publish fails, main stays at the
-          # old version and the changeset is still pending, so a retry is a re-run
-          # rather than a hand-repair.
-          npx changeset publish
+          # Commit BEFORE publishing. `changeset publish` creates the annotated
+          # v<version> tag ITSELF (single-package repo, gitTag defaults true), at
+          # whatever HEAD is -- so HEAD must already be the bump commit. Committing
+          # afterwards and hand-rolling `git tag` made publish's tag win the name and
+          # killed the step with "tag already exists" AFTER npm had published.
+          #
+          # This still preserves the recovery property: nothing is durable until the
+          # push below, so a failed publish leaves main at the old version with the
+          # changeset pending -- a re-run, not a hand-repair. (And `changeset publish`
+          # is idempotent: on an already-published version it warns and exits 0.)
           git add -A
           git commit -m "release: @everyai/cli ${VERSION}"
-          git tag "v${VERSION}"
-          git push origin HEAD:main --follow-tags
+          npx changeset publish
+          # Retry path: when <version> is already on npm, publish no-ops and tags
+          # nothing, so create the tag ourselves. Annotated (-a), because
+          # `git push --follow-tags` does not push lightweight tags.
+          if ! git rev-parse -q --verify "refs/tags/v${VERSION}" >/dev/null; then
+            git tag -a "v${VERSION}" -m "v${VERSION}"
+          fi
+          # `concurrency` serializes Release runs but not human pushes to main, and by
+          # here npm already has the version, so rebase and retry once.
+          git push origin HEAD:main --follow-tags || {
+            git fetch origin main
+            git rebase origin/main
+            git push origin HEAD:main --follow-tags
+          }
         env:
+          # Both resolve to EMPTY (the secret does not exist) and that is deliberate:
+          # publishing goes through npm OIDC trusted publishing. Do NOT delete these
+          # as dead weight -- setup-node exports a bogus placeholder
+          # NODE_AUTH_TOKEN=XXXXX-XXXXX-XXXXX-XXXXX at job scope, and letting that
+          # reach .npmrc would likely break OIDC auth.
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
