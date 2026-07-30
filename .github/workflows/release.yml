@@ -11,12 +11,16 @@ jobs:
   release:
     runs-on: ubuntu-latest
     permissions:
+      # Needed to push the version bump + CHANGELOG back to main.
       contents: write
-      pull-requests: write
       # Required for npm provenance (publishConfig.provenance: true).
       id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          # changeset version writes a commit; without full history the push back
+          # to main is rejected as a non-fast-forward.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -28,14 +32,38 @@ jobs:
       - run: npm install -g npm@^11.5.1
       - run: npm ci
       - run: npm run build
-      # Opens/updates the "Version Packages" PR, and publishes with provenance
-      # when a release is ready. Publishing is gated on the NPM_TOKEN secret —
-      # absent for now, so no publish happens until it is configured.
-      - name: Create release PR or publish
-        uses: changesets/action@v1
-        with:
-          publish: npx changeset publish
+
+      # We deliberately do NOT use changesets/action here. It wants to open a
+      # "Version Packages" PR, and the Every-AI-Inc org forbids GitHub Actions from
+      # creating pull requests ("GitHub Actions is not permitted to create or
+      # approve pull requests"; the repo-level override returns 409 because the org
+      # policy wins). That failed every release at the final step and left the
+      # version bump stranded on a changeset-release/main branch, needing a manual
+      # `gh pr create`. Founder decision 2026-07-29: version and publish straight
+      # from main instead. Trade-off accepted: no Version PR as a review checkpoint,
+      # so what lands on main publishes.
+      # Safe against a release loop: this job pushes to main, but GitHub does not
+      # trigger workflow runs for pushes authenticated with GITHUB_TOKEN. The
+      # no-changesets-pending guard below is the second line of defence.
+      - name: Version, publish, and push the bump back
+        run: |
+          set -euo pipefail
+          if [ -z "$(ls -A .changeset/*.md 2>/dev/null | grep -v README.md || true)" ]; then
+            echo "No changesets pending — nothing to release."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          npx changeset version
+          VERSION="$(node -p 'require("./package.json").version')"
+          # Publish BEFORE pushing the bump: if the publish fails, main stays at the
+          # old version and the changeset is still pending, so a retry is a re-run
+          # rather than a hand-repair.
+          npx changeset publish
+          git add -A
+          git commit -m "release: @everyai/cli ${VERSION}"
+          git tag "v${VERSION}"
+          git push origin HEAD:main --follow-tags
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
