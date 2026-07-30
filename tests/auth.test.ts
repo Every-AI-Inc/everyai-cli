@@ -6,7 +6,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { getOrRegisterClient } from '../src/lib/auth/dcr';
 import { clearDiscoveryCache, discoverOAuth } from '../src/lib/auth/discovery';
-import { exchangeAuthorizationCode } from '../src/lib/auth/flow';
+import { exchangeAuthorizationCode, loginFlow } from '../src/lib/auth/flow';
 import { createPkceChallenge, createPkcePair } from '../src/lib/auth/pkce';
 import {
   deleteTokenFromAllStores,
@@ -361,6 +361,7 @@ describe('auth discovery and DCR', () => {
       expect(server.registrations).toHaveLength(2);
       expect(server.registrations[0]).toMatchObject({
         client_name: 'Every AI CLI',
+        application_type: 'native',
         redirect_uris: ['http://127.0.0.1:1111/callback'],
         grant_types: ['authorization_code', 'refresh_token'],
         response_types: ['code'],
@@ -371,6 +372,57 @@ describe('auth discovery and DCR', () => {
       await server.close();
       await rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('authorization-response issuer validation (RFC 9207)', () => {
+  afterEach(restoreEnv);
+
+  /** Drives loginFlow through to the loopback callback. `iss` receives the mock
+   *  server's own issuer so a test can echo it back, return a different one, or
+   *  return undefined to omit the parameter entirely. */
+  async function loginWithCallbackIss(
+    iss: (issuer: string) => string | undefined,
+  ): Promise<unknown> {
+    const server = await createMockOAuthServer();
+    const dir = await tempDir();
+    process.env.EVERY_CONFIG_DIR = dir;
+
+    try {
+      return await loginFlow({
+        baseUrl: server.baseUrl,
+        openBrowser: async (authorizationUrl) => {
+          const authorize = new URL(authorizationUrl);
+          const callback = new URL(authorize.searchParams.get('redirect_uri') ?? '');
+          callback.searchParams.set('code', 'callback-code');
+          callback.searchParams.set('state', authorize.searchParams.get('state') ?? '');
+          const issValue = iss(server.baseUrl);
+          if (issValue !== undefined) callback.searchParams.set('iss', issValue);
+          await fetch(callback.toString());
+        },
+      });
+    } finally {
+      await server.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  it('rejects a callback whose iss is not the discovered issuer', async () => {
+    await expect(loginWithCallbackIss(() => 'https://attacker.example')).rejects.toMatchObject({
+      exitCode: ExitCode.AUTH,
+    });
+  });
+
+  it('completes the login when the callback echoes the discovered issuer', async () => {
+    await expect(loginWithCallbackIss((issuer) => issuer)).resolves.toMatchObject({
+      refresh_token: 'refresh-original',
+    });
+  });
+
+  it('completes the login when the callback omits iss', async () => {
+    await expect(loginWithCallbackIss(() => undefined)).resolves.toMatchObject({
+      refresh_token: 'refresh-original',
+    });
   });
 });
 

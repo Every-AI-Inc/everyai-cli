@@ -79,6 +79,10 @@ async function postClientRegistration(
         headers: { 'content-type': 'application/json', accept: 'application/json' },
         body: JSON.stringify({
           client_name: CLIENT_NAME,
+          // MCP 2026-07-28 requires clients to declare this. We are a native app
+          // on a loopback redirect, and saying so stops an OIDC-compliant server
+          // from rejecting the http:// redirect_uri that web clients may not use.
+          application_type: 'native',
           redirect_uris: [redirectUri],
           grant_types: ['authorization_code', 'refresh_token'],
           response_types: ['code'],

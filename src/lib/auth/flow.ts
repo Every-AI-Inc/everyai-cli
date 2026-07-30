@@ -17,6 +17,9 @@ const TOKEN_TIMEOUT_MS = 10_000;
 
 interface CallbackResult {
   code: string;
+  /** RFC 9207 `iss`, when the authorization server sends it. Validated in loginFlow,
+   *  which is where the expected issuer from discovery is known. */
+  iss?: string;
 }
 
 export interface LoginFlowOptions {
@@ -100,7 +103,7 @@ async function createLoopbackCallbackServer(state: string): Promise<{
     }
 
     writeHtml(response, 200, callbackHtml());
-    settle?.({ code });
+    settle?.({ code, iss: url.searchParams.get('iss') ?? undefined });
   });
 
   await new Promise<void>((resolve, rejectPromise) => {
@@ -225,6 +228,18 @@ export async function loginFlow(opts: LoginFlowOptions): Promise<StoredTokenSet>
     await (opts.openBrowser ?? openBrowser)(authorizationUrl);
 
     const callback = await Promise.race([loopback.waitForCallback, timeout]);
+
+    // RFC 9207 mix-up defense: if the server identified itself, it must be the one
+    // we discovered. Absent `iss` is left alone -- not every server sends it, and
+    // rejecting that would break logins against servers that are otherwise fine.
+    if (callback.iss !== undefined && callback.iss !== discovery.authServer.issuer) {
+      throw new CliError(
+        `OAuth callback issuer did not match: expected ${discovery.authServer.issuer}, got ${callback.iss}`,
+        ExitCode.AUTH,
+        'auth',
+      );
+    }
+
     const elapsed = Date.now() - startedAt;
     if (elapsed > timeoutMs) {
       throw new CliError('Login timed out after 300s', ExitCode.AUTH, 'auth');
