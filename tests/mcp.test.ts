@@ -153,6 +153,34 @@ describe('mcpCall', () => {
       code: 'not_found',
     });
   });
+
+  it('preserves CallToolResult metadata for trusted approval-gate handling', async () => {
+    const gate = {
+      type: 'human_approval',
+      version: 1,
+      status: 'pending',
+      request_id: 'request-123',
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(jsonRpc({
+        content: [{ type: 'text', text: 'Approval pending.' }],
+        isError: true,
+        _meta: { 'everyai/mcp_gate': gate },
+      }), { status: 200 })),
+    );
+
+    await expect(
+      callTool('https://mcp.example.test', 'token-1', 'delete_client', {
+        client_id: 'client-123',
+      }),
+    ).resolves.toEqual({
+      content: [{ type: 'text', text: 'Approval pending.' }],
+      structuredContent: undefined,
+      isError: true,
+      _meta: { 'everyai/mcp_gate': gate },
+    });
+  });
 });
 
 describe('listTools cache', () => {

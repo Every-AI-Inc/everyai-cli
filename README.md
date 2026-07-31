@@ -41,7 +41,7 @@ Codex's repo-scoped marketplace location is `.agents/plugins/marketplace.json`.
 The CLI talks to the same Every MCP server (`admin-mcp.every.ai`) and inherits its full tool surface automatically — new tools appear with no CLI upgrade. What the CLI adds:
 
 - **Portability** — one install + one login covers every agent and machine context; remote-MCP config is per-host, per-format, and often impossible in CI.
-- **Safety gates** — reads run freely; writes require `--yes`; destructive actions (sends, deletes, voids, payments) additionally require `--allow-destructive`; `--read-only` (or `EVERY_READ_ONLY=1`) locks everything else out. Classifications are enforced locally — including for tools whose server annotations are too optimistic.
+- **Safety gates** — reads run freely; writes require `--yes`; destructive actions (sends, deletes, voids, payments) additionally require `--allow-destructive`; `--read-only` (or `EVERY_READ_ONLY=1`) locks everything else out. Classifications are enforced locally — including for tools whose server annotations are too optimistic. When trusted MCP metadata asks for an ordinary-write text confirmation, the CLI forwards the server's exact phrase and retries once.
 - **Deterministic output** — a stable `--json` envelope and exit-code taxonomy an agent can parse and branch on.
 
 ## Commands
@@ -86,6 +86,10 @@ Every command supports `--json`: exactly one JSON document on stdout, nothing el
 ```
 
 Exit codes: `0` ok · `1` tool/generic error · `2` usage · `3` auth (run `every login`) · `4` permission/confirmation needed · `5` rate-limited · `6` not found · `7` network/timeout.
+
+Server-side human approvals never trigger an automatic destructive retry. If Every shows a pending approval after a destructive call returns or times out, approve it there and then re-run the identical command. The CLI sends one `tools/call` per invocation for a human-approval-gated action, and a still-valid approval can be consumed by that later invocation.
+
+In `--json` mode, a server approval response uses exit `4` and includes a structured `error.mcp_gate` object. After local `--yes` or interactive consent, `type: "text_confirmation"` is retried once automatically; `type: "human_approval"` is returned to the caller without retrying.
 
 ## Headless / CI
 

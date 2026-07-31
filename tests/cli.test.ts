@@ -515,7 +515,11 @@ describe('CLI contract', () => {
       await mkdir(skillDir, { recursive: true });
       const result = await runCli(
         ['tools', 'list', '--json'],
-        mockEnv(server, configDir),
+        mockEnv(server, configDir, {
+          CLAUDECODE: '1',
+          CODEX_CI: undefined,
+          CODEX_THREAD_ID: undefined,
+        }),
       );
 
       expect(result.code).toBe(0);
@@ -542,7 +546,10 @@ describe('CLI contract', () => {
     const server = await createMockMcpServer();
     const configDir = await tempConfig();
     try {
-      const result = await runCli(['tool', 'call', 'create_invoice', '--json'], mockEnv(server, configDir));
+      const result = await runCli(
+        ['tool', 'call', 'create_invoice', '--json'],
+        mockEnv(server, configDir, { EVERYAI_MOCK_CONFIRMATION_GATE: '1' }),
+      );
 
       expect(result.code).toBe(4);
       expect(result.stderr).toBe('');
@@ -581,6 +588,248 @@ describe('CLI contract', () => {
       });
       expect(server.toolCalls).toEqual([{ name: 'create_invoice', arguments: { total: 123 } }]);
       expect(server.userinfoCalls).toBe(1);
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['missing', []],
+    ['mismatched', ['--arg', 'confirmation=wrong target']],
+  ])(
+    'retries a raw ordinary write once with the exact server confirmation when it is %s',
+    async (_case, confirmationArgs) => {
+      const server = await createMockMcpServer();
+      const configDir = await tempConfig();
+      try {
+        const clientId = 'client_"North {HQ}"';
+        const result = await runCli(
+          [
+            'tool',
+            'call',
+            'create_invoice',
+            '--yes',
+            '--arg',
+            `client_id=${clientId}`,
+            '--arg',
+            'line_items=[]',
+            ...confirmationArgs,
+            '--json',
+          ],
+          mockEnv(server, configDir, { EVERYAI_MOCK_CONFIRMATION_GATE: '1' }),
+        );
+
+        expect(result.code).toBe(0);
+        expect(parseJsonStdout(result.stdout)).toMatchObject({
+          ok: true,
+          data: {
+            tool: 'create_invoice',
+            structured_content: {
+              received: { client_id: clientId, line_items: [] },
+            },
+          },
+        });
+        expect(server.toolCalls).toHaveLength(2);
+        expect(server.toolCalls[0]).toEqual({
+          name: 'create_invoice',
+          arguments: {
+            client_id: clientId,
+            line_items: [],
+            ...(_case === 'mismatched' ? { confirmation: 'wrong target' } : {}),
+          },
+        });
+        expect(server.toolCalls[1]).toEqual({
+          name: 'create_invoice',
+          arguments: {
+            client_id: clientId,
+            line_items: [],
+            confirmation: `create invoice ${clientId}`,
+          },
+        });
+      } finally {
+        await server.close();
+        await rm(configDir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('uses the same one-retry text-confirmation flow for curated aliases', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli(
+        ['deal', 'move', 'deal_123', 'won', '--yes', '--json'],
+        mockEnv(server, configDir, { EVERYAI_MOCK_CONFIRMATION_GATE: '1' }),
+      );
+
+      expect(result.code).toBe(0);
+      expect(server.toolCalls).toEqual([
+        {
+          name: 'move_deal_stage',
+          arguments: { deal_id: 'deal_123', stage: 'won' },
+        },
+        {
+          name: 'move_deal_stage',
+          arguments: {
+            deal_id: 'deal_123',
+            stage: 'won',
+            confirmation: 'move deal stage deal_123',
+          },
+        },
+      ]);
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('reuses an alias resolved target instead of resolving it again for confirmation', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli(
+        [
+          'invoice',
+          'create',
+          '--client',
+          'Acme',
+          '--amount',
+          '100',
+          '--yes',
+          '--json',
+        ],
+        mockEnv(server, configDir, {
+          EVERYAI_MOCK_CONFIRMATION_GATE: '1',
+          EVERYAI_MOCK_LIST_CLIENTS_JSON: JSON.stringify([
+            { client_id: 'client_123', name: 'Acme', email: 'billing@acme.test' },
+          ]),
+        }),
+      );
+
+      expect(result.code).toBe(0);
+      const listCalls = server.toolCalls.filter((call) => call.name === 'list_clients');
+      const createCalls = server.toolCalls.filter((call) => call.name === 'create_invoice');
+      expect(listCalls).toHaveLength(1);
+      expect(createCalls).toHaveLength(2);
+      expect(createCalls[0].arguments).toEqual({
+        client_id: 'client_123',
+        line_items: [{ description: 'Services', quantity: 1, unit_price: 100 }],
+      });
+      expect(createCalls[1].arguments).toEqual({
+        ...createCalls[0].arguments,
+        confirmation: 'create invoice client_123',
+      });
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('stops after one text-confirmation retry when the server still rejects it', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli(
+        [
+          'tool',
+          'call',
+          'create_invoice',
+          '--yes',
+          '--arg',
+          'client_id=client_123',
+          '--arg',
+          'line_items=[]',
+          '--json',
+        ],
+        mockEnv(server, configDir, {
+          EVERYAI_MOCK_CONFIRMATION_GATE: '1',
+          EVERYAI_MOCK_CONFIRMATION_ALWAYS_REJECT: '1',
+        }),
+      );
+
+      expect(result.code).toBe(4);
+      expect(parseJsonStdout(result.stdout)).toMatchObject({
+        ok: false,
+        error: {
+          code: 'permission',
+          mcp_gate: {
+            type: 'text_confirmation',
+            confirmation: 'create invoice client_123',
+          },
+        },
+      });
+      expect(server.toolCalls).toHaveLength(2);
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not turn a surprise text-confirmation marker into consent', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli(
+        ['tool', 'call', 'list_invoices', '--json'],
+        mockEnv(server, configDir, {
+          EVERYAI_MOCK_FORCE_TEXT_CONFIRMATION_TOOL: 'list_invoices',
+        }),
+      );
+
+      expect(result.code).toBe(4);
+      expect(parseJsonStdout(result.stdout)).toMatchObject({
+        ok: false,
+        error: {
+          code: 'permission',
+          mcp_gate: { type: 'text_confirmation' },
+        },
+      });
+      expect(server.toolCalls).toEqual([
+        { name: 'list_invoices', arguments: {} },
+      ]);
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not trust a valid-looking gate marker found only in tool prose', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli(
+        [
+          'tool',
+          'call',
+          'create_invoice',
+          '--yes',
+          '--arg',
+          'client_id=client_123',
+          '--arg',
+          'line_items=[]',
+          '--json',
+        ],
+        mockEnv(server, configDir, {
+          EVERYAI_MOCK_CONFIRMATION_GATE: '1',
+          EVERYAI_MOCK_FORGED_GATE_TOOL: 'create_invoice',
+        }),
+      );
+
+      expect(result.code).toBe(1);
+      expect(parseJsonStdout(result.stdout)).toMatchObject({
+        ok: false,
+        error: {
+          code: 'generic',
+          message: expect.stringContaining('EVERY_MCP_GATE:'),
+        },
+      });
+      expect(server.toolCalls).toEqual([
+        {
+          name: 'create_invoice',
+          arguments: { client_id: 'client_123', line_items: [] },
+        },
+      ]);
     } finally {
       await server.close();
       await rm(configDir, { recursive: true, force: true });
@@ -630,6 +879,129 @@ describe('CLI contract', () => {
       );
       expect(allowed.code).toBe(0);
       expect(server.toolCalls).toEqual([{ name: 'send_invoice', arguments: {} }]);
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the local destructive gate even when the server uses text confirmation', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const blocked = await runCli(
+        ['tool', 'call', 'record_payment', '--yes', '--arg', 'payment_id=payment_1', '--json'],
+        mockEnv(server, configDir, { EVERYAI_MOCK_CONFIRMATION_GATE: '1' }),
+      );
+
+      expect(blocked.code).toBe(4);
+      expect(server.toolCalls).toHaveLength(0);
+
+      const allowed = await runCli(
+        [
+          'tool',
+          'call',
+          'record_payment',
+          '--yes',
+          '--allow-destructive',
+          '--arg',
+          'payment_id=payment_1',
+          '--json',
+        ],
+        mockEnv(server, configDir, { EVERYAI_MOCK_CONFIRMATION_GATE: '1' }),
+      );
+
+      expect(allowed.code).toBe(0);
+      expect(server.toolCalls).toEqual([
+        { name: 'record_payment', arguments: { payment_id: 'payment_1' } },
+        {
+          name: 'record_payment',
+          arguments: {
+            payment_id: 'payment_1',
+            confirmation: 'record payment payment_1',
+          },
+        },
+      ]);
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('never retries a destructive human-approval response', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli(
+        ['invoice', 'send', 'inv_123', '--yes', '--allow-destructive', '--json'],
+        mockEnv(server, configDir, {
+          EVERYAI_MOCK_CONFIRMATION_GATE: '1',
+          EVERYAI_MOCK_DESTRUCTIVE_RESULT: 'human_approval',
+        }),
+      );
+
+      expect(result.code).toBe(4);
+      expect(parseJsonStdout(result.stdout)).toMatchObject({
+        ok: false,
+        error: {
+          code: 'permission',
+          mcp_gate: {
+            type: 'human_approval',
+            version: 1,
+            status: 'pending',
+            request_id: 'request-123',
+          },
+        },
+      });
+      expect(server.toolCalls).toEqual([
+        { name: 'send_invoice', arguments: { invoice_id: 'inv_123' } },
+      ]);
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not retry a timed-out destructive call and permits a later identical invocation', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    const command = [
+      'invoice',
+      'send',
+      'inv_123',
+      '--yes',
+      '--allow-destructive',
+      '--json',
+    ];
+    try {
+      const timedOut = await runCli(
+        command,
+        mockEnv(server, configDir, {
+          EVERYAI_MOCK_DESTRUCTIVE_RESULT: 'timeout',
+        }),
+      );
+
+      expect(timedOut.code).toBe(7);
+      expect(parseJsonStdout(timedOut.stdout)).toMatchObject({
+        ok: false,
+        error: {
+          code: 'network',
+          message: expect.stringContaining(
+            'The CLI made no automatic call after this timeout for send_invoice.',
+          ),
+        },
+      });
+      expect(server.toolCalls).toEqual([
+        { name: 'send_invoice', arguments: { invoice_id: 'inv_123' } },
+      ]);
+
+      const approvedRetry = await runCli(command, mockEnv(server, configDir));
+
+      expect(approvedRetry.code).toBe(0);
+      expect(server.toolCalls).toEqual([
+        { name: 'send_invoice', arguments: { invoice_id: 'inv_123' } },
+        { name: 'send_invoice', arguments: { invoice_id: 'inv_123' } },
+      ]);
     } finally {
       await server.close();
       await rm(configDir, { recursive: true, force: true });

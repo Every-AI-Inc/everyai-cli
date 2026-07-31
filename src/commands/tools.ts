@@ -14,6 +14,11 @@ import {
 import { getToken } from '../lib/auth/tokens.js';
 import { fetchUserInfo, UserInfo } from '../lib/auth/userinfo.js';
 import { maybeShowSkillHint } from '../lib/hints.js';
+import {
+  parseMcpGateMetadata,
+  SERVER_CONFIRMATION_ARG,
+  withoutMcpGateMarker,
+} from '../lib/mcp-gate.js';
 
 interface BaseCommandOptions {
   json?: boolean;
@@ -236,6 +241,29 @@ function timeoutMs(value: string | undefined): number {
   return Math.round(seconds * 1000);
 }
 
+function destructiveTimeoutError(
+  err: unknown,
+  toolName: string,
+): CliError | undefined {
+  if (
+    !(err instanceof CliError) ||
+    err.code !== 'network' ||
+    !err.message.startsWith('Timed out reaching ')
+  ) {
+    return undefined;
+  }
+
+  return new CliError(
+    `${err.message}. The CLI made no automatic call after this timeout for ${toolName}. ` +
+      'If Every shows a pending ' +
+      'approval, approve it and re-run the identical command; the server can consume ' +
+      'that still-valid approval on the later call.',
+    err.exitCode,
+    err.code,
+    err.details,
+  );
+}
+
 function textBlocks(content: unknown): string[] {
   if (!Array.isArray(content)) return [];
   return content
@@ -322,12 +350,14 @@ export async function invokeToolCall(
   const environment = environmentNameForBaseUrl(baseUrl);
   const userinfo = gated ? await resolveWriteTarget(baseUrl) : undefined;
   const target = gated ? targetLabel(userinfo, environment) : undefined;
+  let locallyConfirmed = opts.yes === true;
 
   if (requirement.prompt) {
     const confirmed = await promptForTool(name, classification.level, requirement.prompt, target);
     if (!confirmed) {
       throw new CliError('Tool call cancelled.', ExitCode.PERMISSION, 'permission');
     }
+    locallyConfirmed = true;
   }
 
   if (gated && !opts.json && target) {
@@ -335,7 +365,34 @@ export async function invokeToolCall(
   }
 
   const args = await argsFactory();
-  const result = await callTool(baseUrl, token, name, args, { timeoutMs: timeoutMs(opts.timeout) });
+  const callTimeoutMs = timeoutMs(opts.timeout);
+  const invokeOnce = async (
+    callArgs: Record<string, unknown>,
+  ): Promise<Awaited<ReturnType<typeof callTool>>> => {
+    try {
+      return await callTool(baseUrl, token, name, callArgs, { timeoutMs: callTimeoutMs });
+    } catch (err) {
+      if (classification.level === 'destructive') {
+        const timeout = destructiveTimeoutError(err, name);
+        if (timeout) throw timeout;
+      }
+      throw err;
+    }
+  };
+
+  let result = await invokeOnce(args);
+
+  const firstGate = result.isError ? parseMcpGateMetadata(result._meta) : undefined;
+  if (firstGate?.type === 'text_confirmation' && locallyConfirmed) {
+    // The server is authoritative for the phrase because it validates/coerces
+    // arguments before constructing it. Retry this ordinary write at most once.
+    const confirmedArgs = {
+      ...args,
+      [SERVER_CONFIRMATION_ARG]: firstGate.confirmation,
+    };
+    result = await invokeOnce(confirmedArgs);
+  }
+
   const data = {
     tool: name,
     is_error: result.isError,
@@ -345,8 +402,19 @@ export async function invokeToolCall(
   };
 
   if (result.isError) {
-    const message = contentAsText(result.content) || 'Tool returned an error.';
-    throw new CliError(message, ExitCode.GENERIC, 'generic');
+    const rawMessage = contentAsText(result.content) || 'Tool returned an error.';
+    const marker = parseMcpGateMetadata(result._meta);
+    if (marker) {
+      const message = withoutMcpGateMarker(rawMessage) || (
+        marker.type === 'human_approval'
+          ? `${name} requires approval in Every.`
+          : `${name} text confirmation was rejected.`
+      );
+      throw new CliError(message, ExitCode.PERMISSION, 'permission', {
+        mcp_gate: marker,
+      });
+    }
+    throw new CliError(rawMessage, ExitCode.GENERIC, 'generic');
   }
 
   return data;

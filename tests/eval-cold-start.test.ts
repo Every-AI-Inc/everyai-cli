@@ -154,7 +154,10 @@ describe('cold-start invoice eval', () => {
     const configDir = await tempConfig();
     const invocations: CliResult[] = [];
     try {
-      const env = mockEnv(server, configDir, withClients([brandonClient]));
+      const env = mockEnv(server, configDir, {
+        ...withClients([brandonClient]),
+        EVERYAI_MOCK_CONFIRMATION_GATE: '1',
+      });
 
       invocations.push(await runCli(['docs'], env));
       invocations.push(await runCli(['whoami', '--json'], env));
@@ -182,7 +185,7 @@ describe('cold-start invoice eval', () => {
 
       const toolCalls = server.toolCalls;
       expect(callsNamed(toolCalls, 'list_clients')).toHaveLength(1);
-      expect(callsNamed(toolCalls, 'create_invoice')).toHaveLength(1);
+      expect(callsNamed(toolCalls, 'create_invoice')).toHaveLength(2);
       expect(toolCalls).toEqual([
         { name: 'list_clients', arguments: { name: 'Brandon Chu' } },
         {
@@ -192,6 +195,16 @@ describe('cold-start invoice eval', () => {
             line_items: [
               { description: 'Services', quantity: 1, unit_price: 100 },
             ],
+          },
+        },
+        {
+          name: 'create_invoice',
+          arguments: {
+            client_id: brandonClient.client_id,
+            line_items: [
+              { description: 'Services', quantity: 1, unit_price: 100 },
+            ],
+            confirmation: `create invoice ${brandonClient.client_id}`,
           },
         },
       ]);

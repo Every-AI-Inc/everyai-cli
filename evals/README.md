@@ -7,7 +7,9 @@ Metric: total CLI invocations needed for a skill-equipped agent to handle
 
 - v0.1.0 trace: 13 invocations.
 - Current CI budget: <= 5 invocations.
-- Expected mock path: exactly 3 invocations.
+- Expected mock path: exactly 3 invocations. The create invocation may make one
+  internal text-confirmation retry, but it must not cost the agent another CLI
+  round trip.
 
 CI runs the offline mock version on every push through `npm test`:
 

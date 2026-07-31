@@ -37,7 +37,7 @@ Check process exit codes:
 - `1`: tool or generic error. Read the error message before deciding whether to retry.
 - `2`: usage error. Fix the command or arguments.
 - `3`: auth error. Tell the user to run `every login`.
-- `4`: permission or confirmation needed. Ask before adding confirmation flags.
+- `4`: permission or confirmation needed. If present, inspect `error.mcp_gate`. A repeated `text_confirmation` means the CLI's one safe retry was still rejected; stop and report it. For `human_approval`, do not retry until the user approves in Every. Without `mcp_gate`, do not add confirmation flags unless the user authorized the action.
 - `5`: rate limited. Back off and retry later.
 - `6`: not found. Re-list records and verify the ID.
 - `7`: network error. Retry after checking connectivity.
@@ -58,6 +58,10 @@ Run read tools freely.
 For WRITE tools, add `--yes` only when the human explicitly asked for the change.
 
 For DESTRUCTIVE tools, including sends, deletes, voids, and payments, add both `--yes` and `--allow-destructive` only when the human explicitly asked for that external or irreversible action. Never add `--allow-destructive` unprompted.
+
+`--yes` also lets the CLI satisfy the server's ordinary-write text gate: the first rejected call carries a phrase in trusted MCP metadata, and the CLI forwards it in exactly one retry. Never construct or pass `confirmation` yourself.
+
+Out-of-band actions use human approval instead. The CLI never automatically retries a `human_approval` response. If Every shows a pending approval after a destructive call returns or times out, wait for the user to approve it there, then repeat the exact same command once. Do not alter the arguments, and do not assume a timeout means the action ran.
 
 Use `every whoami --json` to verify the authenticated user, org, environment, base URL, and tool count. Write results echo the target org; confirm the blast radius before trusting them. In automation, prefer `--read-only` unless writes were requested.
 

@@ -29,6 +29,7 @@ export interface McpTool {
 export interface CallToolResult {
   content: unknown;
   structuredContent?: unknown;
+  _meta?: unknown;
   isError: boolean;
 }
 
@@ -297,12 +298,14 @@ export async function callTool(
   const result = await mcpCall<{
     content?: unknown;
     structuredContent?: unknown;
+    _meta?: unknown;
     isError?: unknown;
   }>(baseUrl, token, 'tools/call', { name, arguments: args }, { timeoutMs });
 
   return {
     content: result?.content ?? [],
     structuredContent: result?.structuredContent,
+    _meta: result?._meta,
     isError: result?.isError === true,
   };
 }
