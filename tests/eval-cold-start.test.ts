@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { parseClientCandidates } from '../src/commands/aliases';
+import { parsePartyPage } from '../src/commands/aliases';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const entrypoint = path.join(repoRoot, 'src', 'index.ts');
@@ -131,279 +131,138 @@ function mockEnv(
   };
 }
 
-function withClients(clients: Array<Record<string, unknown>>): NodeJS.ProcessEnv {
-  return { EVERYAI_MOCK_LIST_CLIENTS_JSON: JSON.stringify(clients) };
+const operationId = '00000000-0000-4000-8000-000000000099';
+const person = {kind: 'person' as const, id: '00000000-0000-4000-8000-000000000001', name: 'Brandon Chu', avatar_url: 'https://example.test/avatar.png'};
+const company = {...person, kind: 'company' as const};
+const page = (items: unknown[], total = items.length, has_more = false) => ({items, total, has_more});
+const baseArgs = ['invoice', 'create', '--amount', '100', '--operation-id', operationId, '--yes', '--json'];
+function networkEnv(server: MockMcpServer, config: string, people = page([person]), companies = page([]), extra: NodeJS.ProcessEnv = {}) {
+  return mockEnv(server, config, {EVERYAI_MOCK_PEOPLE: JSON.stringify(people), EVERYAI_MOCK_COMPANIES: JSON.stringify(companies), ...extra});
 }
 
-function callsNamed(
-  calls: Array<{ name: string; arguments: Record<string, unknown> }>,
-  name: string,
-): Array<{ name: string; arguments: Record<string, unknown> }> {
-  return calls.filter((call) => call.name === name);
-}
+it('cold-start creates a Person invoice within three invocations, preserving operation and target on confirmation', async () => {
+  const server = await createMockMcpServer(); const config = await tempConfig();
+  try {
+    const env = networkEnv(server, config, page([person]), page([]), {EVERYAI_MOCK_CONFIRMATION_GATE: '1'});
+    const results = [];
+    for (const args of [['docs'], ['whoami', '--json'], [...baseArgs, '--party', person.name]]) results.push(await runCli(args, env));
+    expect(results).toHaveLength(3); expect(results.every(result => result.code === 0)).toBe(true);
+    expect(parseJsonStdout(results[2].stdout)).toMatchObject({ok: true, data: {resolved_party: person, operation_id: operationId}});
+    expect(server.toolCalls.map(call => call.name)).toEqual(['list_people', 'list_companies', 'create_invoice', 'create_invoice']);
+    const command = {operation_id: operationId, party: {kind: 'person', id: person.id}, line_items: [{description: 'Services', quantity: 1, unit_price: 100}]};
+    expect(server.toolCalls[2].arguments).toEqual({command});
+    expect(server.toolCalls[3].arguments).toEqual({command, confirmation: 'create invoice'});
+  } finally {await server.close(); await rm(config, {recursive: true, force: true});}
+});
 
-const brandonClient = {
-  client_id: '00000000-0000-4000-8000-000000000001',
-  name: 'Brandon Chu',
-  email: 'brandon@example.com',
-};
+it('keeps same-name and same-UUID People/Companies distinct and preserves avatars in choices', async () => {
+  const server = await createMockMcpServer(); const config = await tempConfig();
+  try {
+    const env = networkEnv(server, config, page([person]), page([company]));
+    const result = await runCli([...baseArgs, '--party', person.name], env);
+    expect(result.code).toBe(6); expect(parseJsonStdout(result.stdout)).toMatchObject({error: {candidates: [person, company]}});
+    expect(server.toolCalls.map(call => call.name)).toEqual(['list_people', 'list_companies']);
+    server.clearToolCalls();
+    const selected = await runCli([...baseArgs, '--party-kind', 'company', '--party-id', company.id], env);
+    expect(selected.code).toBe(0); expect(server.toolCalls).toHaveLength(1);
+    expect(server.toolCalls[0].arguments).toMatchObject({command: {party: {kind: 'company', id: company.id}}});
+  } finally {await server.close(); await rm(config, {recursive: true, force: true});}
+});
 
-describe('cold-start invoice eval', () => {
-  it('keeps the documented agent path within the round-trip budget', async () => {
-    const server = await createMockMcpServer();
-    const configDir = await tempConfig();
-    const invocations: CliResult[] = [];
-    try {
-      const env = mockEnv(server, configDir, {
-        ...withClients([brandonClient]),
-        EVERYAI_MOCK_CONFIRMATION_GATE: '1',
-      });
+it('queries secondary email through canonical People search without interpreting primary-only output', async () => {
+  const server = await createMockMcpServer(); const config = await tempConfig();
+  try {
+    const result = await runCli([...baseArgs, '--party', 'secondary@example.test', '--party-kind', 'person'], networkEnv(server, config));
+    expect(result.code).toBe(0); expect(server.toolCalls[0]).toEqual({name: 'list_people', arguments: {query: 'secondary@example.test', limit: 100, offset: 0}});
+    expect(server.toolCalls).toHaveLength(2);
+  } finally {await server.close(); await rm(config, {recursive: true, force: true});}
+});
 
-      invocations.push(await runCli(['docs'], env));
-      invocations.push(await runCli(['whoami', '--json'], env));
-      invocations.push(await runCli(
-        ['invoice', 'create', '--client', 'Brandon Chu', '--amount', '100', '--yes', '--json'],
-        env,
-      ));
-
-      expect(invocations).toHaveLength(3);
-      expect(invocations.length).toBeLessThanOrEqual(5);
-      expect(invocations.every((result) => result.code === 0)).toBe(true);
-
-      const createEnvelope = parseJsonStdout(invocations[2].stdout);
-      expect(createEnvelope).toMatchObject({
-        ok: true,
-        env: 'custom',
-        data: {
-          resolved_client: {
-            client_id: brandonClient.client_id,
-            name: brandonClient.name,
-          },
-          org: { org_id: 'org_123', org_name: 'Acme Co' },
-        },
-      });
-
-      const toolCalls = server.toolCalls;
-      expect(callsNamed(toolCalls, 'list_clients')).toHaveLength(1);
-      expect(callsNamed(toolCalls, 'create_invoice')).toHaveLength(2);
-      expect(toolCalls).toEqual([
-        { name: 'list_clients', arguments: { name: 'Brandon Chu' } },
-        {
-          name: 'create_invoice',
-          arguments: {
-            client_id: brandonClient.client_id,
-            line_items: [
-              { description: 'Services', quantity: 1, unit_price: 100 },
-            ],
-          },
-        },
-        {
-          name: 'create_invoice',
-          arguments: {
-            client_id: brandonClient.client_id,
-            line_items: [
-              { description: 'Services', quantity: 1, unit_price: 100 },
-            ],
-            confirmation: `create invoice ${brandonClient.client_id}`,
-          },
-        },
-      ]);
-    } finally {
-      await server.close();
-      await rm(configDir, { recursive: true, force: true });
-    }
-  });
-
-  it('returns mechanical ambiguity candidates and supports a client-id retry', async () => {
-    const server = await createMockMcpServer();
-    const configDir = await tempConfig();
-    const invocations: CliResult[] = [];
-    const ambiguousClients = [
-      brandonClient,
-      {
-        client_id: '00000000-0000-4000-8000-000000000002',
-        name: 'Brandon Projects LLC',
-        email: 'ops@example.com',
-      },
-    ];
-
-    try {
-      const ambiguousEnv = mockEnv(server, configDir, withClients(ambiguousClients));
-      invocations.push(await runCli(
-        ['invoice', 'create', '--client', 'Brandon', '--amount', '100', '--yes', '--json'],
-        ambiguousEnv,
-      ));
-
-      expect(invocations[0].code).toBe(6);
-      const ambiguousEnvelope = parseJsonStdout(invocations[0].stdout);
-      expect(ambiguousEnvelope).toMatchObject({
-        ok: false,
-        env: 'custom',
-        error: { code: 'not_found' },
-      });
-      expect((ambiguousEnvelope.error as { candidates: unknown[] }).candidates).toHaveLength(2);
-      expect(callsNamed(server.toolCalls, 'list_clients')).toHaveLength(1);
-      expect(callsNamed(server.toolCalls, 'create_invoice')).toHaveLength(0);
-
+it('reads subsequent pages before inferring uniqueness and refuses truncated totals', async () => {
+  const server = await createMockMcpServer(); const config = await tempConfig();
+  try {
+    for (const resultPage of [page([person], 2, false), page([], 1, true)]) {
       server.clearToolCalls();
-      invocations.push(await runCli(
-        [
-          'invoice',
-          'create',
-          '--client-id',
-          brandonClient.client_id,
-          '--amount',
-          '100',
-          '--yes',
-          '--json',
-        ],
-        ambiguousEnv,
-      ));
-
-      expect(invocations).toHaveLength(2);
-      expect(invocations[1].code).toBe(0);
-      expect(callsNamed(server.toolCalls, 'list_clients')).toHaveLength(0);
-      expect(callsNamed(server.toolCalls, 'create_invoice')).toHaveLength(1);
-    } finally {
-      await server.close();
-      await rm(configDir, { recursive: true, force: true });
+      const result = await runCli([...baseArgs, '--party', 'Brandon'], networkEnv(server, config, resultPage));
+      expect(result.code).toBe(6); expect(server.toolCalls.every(call => call.name.startsWith('list_'))).toBe(true);
     }
-  });
+  } finally {await server.close(); await rm(config, {recursive: true, force: true});}
 });
 
-describe('invoice client resolution parser', () => {
-  const realShapeMarkdown = [
-    'Found matching clients:',
-    '- **Brandon Chu** — brandon@example.com [id: 00000000-0000-4000-8000-000000000001]',
-    '- **Brandon Projects LLC** — ops@example.com [id: 00000000-0000-4000-8000-000000000002]',
-  ].join('\n');
+it.each([
+  ['--party-id', person.id], ['--party-kind', 'client', '--party-id', person.id],
+  ['--party-kind', 'person', '--party-id', person.id, '--party', 'Brandon'], [],
+])('rejects mismatched typed flags %s without a tool call', async (...flags) => {
+  const server = await createMockMcpServer(); const config = await tempConfig();
+  try {
+    const result = await runCli([...baseArgs, ...flags], networkEnv(server, config));
+    expect(result.code).toBe(2); expect(server.toolCalls).toEqual([]);
+  } finally {await server.close(); await rm(config, {recursive: true, force: true});}
+});
 
-  it('parses one structured candidate', () => {
-    expect(parseClientCandidates({
-      structured_content: {
-        clients: [{ client_id: 'client_1', name: 'Acme Co' }],
-      },
-    })).toEqual([{ client_id: 'client_1', name: 'Acme Co' }]);
-  });
+it.each([['--read-only'], []])('gates writes before argument resolution %s', async (...flags) => {
+  const server = await createMockMcpServer(); const config = await tempConfig();
+  try {
+    const result = await runCli([...baseArgs.filter(arg => arg !== '--yes'), '--party', 'Brandon', ...flags], networkEnv(server, config));
+    expect(result.code).toBe(4); expect(server.toolCalls).toEqual([]);
+  } finally {await server.close(); await rm(config, {recursive: true, force: true});}
+});
 
-  it('parses zero candidates from empty or malformed text', () => {
-    expect(parseClientCandidates({
-      content: [{ type: 'text', text: 'No clients found.\n- Missing Id Corp\n- [id: client_no_name]' }],
-    })).toEqual([]);
-  });
+it('rejects text/nested identities and wrong-kind rows as resolution evidence', () => {
+  expect(() => parsePartyPage({structured_content: {result: '- Brandon [id: x]'}}, 'person')).toThrow();
+  expect(() => parsePartyPage({structured_content: page([company])}, 'person')).toThrow();
+  expect(parsePartyPage({structured_content: {...page([person]), other: {items: [company]}}}, 'person').items).toEqual([person]);
+});
 
-  it('parses many markdown candidates with id markers', () => {
-    expect(parseClientCandidates({
-      structured_content: { result: realShapeMarkdown },
-    })).toEqual([
-      { client_id: '00000000-0000-4000-8000-000000000001', name: 'Brandon Chu' },
-      { client_id: '00000000-0000-4000-8000-000000000002', name: 'Brandon Projects LLC' },
+it('checks all subsequent pages before exposing ambiguous choices', async () => {
+  const server = await createMockMcpServer(); const config = await tempConfig();
+  const first = Array.from({length: 100}, (_, i) => ({...person, id: `00000000-0000-4000-8000-${String(i + 100).padStart(12, '0')}`}));
+  try {
+    const result = await runCli([...baseArgs, '--party', 'Brandon', '--party-kind', 'person'], mockEnv(server, config, {
+      EVERYAI_MOCK_PEOPLE: JSON.stringify([page(first, 101, true), page([person], 101, false)]),
+    }));
+    expect(result.code).toBe(6);
+    expect(server.toolCalls).toEqual([
+      {name: 'list_people', arguments: {query: 'Brandon', limit: 100, offset: 0}},
+      {name: 'list_people', arguments: {query: 'Brandon', limit: 100, offset: 100}},
     ]);
-  });
-
-  it('ignores malformed lines while keeping valid candidates', () => {
-    expect(parseClientCandidates({
-      content: [{
-        type: 'text',
-        text: [
-          '- No id Client',
-          '- [id: client_no_name]',
-          '- **Valid Client** [id: client_valid]',
-        ].join('\n'),
-      }],
-    })).toEqual([{ client_id: 'client_valid', name: 'Valid Client' }]);
-  });
+    expect((parseJsonStdout(result.stdout).error as {candidates: unknown[]}).candidates).toHaveLength(101);
+  } finally {await server.close(); await rm(config, {recursive: true, force: true});}
 });
 
-describe('invoice create command guards', () => {
-  it('returns usage exit 2 for invalid amounts before MCP tool calls', async () => {
-    const server = await createMockMcpServer();
-    const configDir = await tempConfig();
-    try {
-      const result = await runCli(
-        ['invoice', 'create', '--client', 'Brandon Chu', '--amount', '0', '--yes', '--json'],
-        mockEnv(server, configDir, withClients([brandonClient])),
-      );
+it('a stale v1 catalog never triggers a legacy alias fallback, and --no-cache refreshes it', async () => {
+  const {readdir} = await import('node:fs/promises');
+  const server = await createMockMcpServer(); const config = await tempConfig();
+  try {
+    const env = networkEnv(server, config);
+    expect((await runCli(['tools','list','--json'], env)).code).toBe(0);
+    const cache = path.join(config, 'cache', (await readdir(path.join(config,'cache')))[0]);
+    const oldTools = JSON.parse(readFileSync(path.join(repoRoot,'tests/fixtures/tools-alias-schemas-v1-historical.json'),'utf8'));
+    const putCache = (age: number) => writeFileSync(cache, JSON.stringify({fetched_at: Date.now()-age, tools: oldTools}));
+    putCache(0);
+    expect((await runCli(['person','list','--json'], env)).code).toBe(6);
+    expect(server.toolCalls).toEqual([]);
+    expect((await runCli(['person','list','--no-cache','--json'], env)).code).toBe(0);
+    expect(server.toolCalls.map(call=>call.name)).toEqual(['list_people']);
+    server.clearToolCalls(); putCache(11*60*1000);
+    expect((await runCli(['company','list','--json'], env)).code).toBe(0);
+    expect(server.toolCalls.map(call=>call.name)).toEqual(['list_companies']);
+  } finally {await server.close(); await rm(config, {recursive: true, force: true});}
+});
 
-      expect(result.code).toBe(2);
-      expect(parseJsonStdout(result.stdout)).toMatchObject({
-        ok: false,
-        error: { code: 'usage' },
-      });
-      expect(server.toolCalls).toHaveLength(0);
-    } finally {
-      await server.close();
-      await rm(configDir, { recursive: true, force: true });
-    }
-  });
-
-  it('requires either --client or --client-id', async () => {
-    const server = await createMockMcpServer();
-    const configDir = await tempConfig();
-    try {
-      const result = await runCli(
-        ['invoice', 'create', '--amount', '100', '--yes', '--json'],
-        mockEnv(server, configDir),
-      );
-
-      expect(result.code).toBe(2);
-      expect(parseJsonStdout(result.stdout)).toMatchObject({
-        ok: false,
-        error: { code: 'usage' },
-      });
-      expect(server.toolCalls).toHaveLength(0);
-    } finally {
-      await server.close();
-      await rm(configDir, { recursive: true, force: true });
-    }
-  });
-
-  it('bypasses list_clients when --client-id is supplied', async () => {
-    const server = await createMockMcpServer();
-    const configDir = await tempConfig();
-    try {
-      const result = await runCli(
-        [
-          'invoice',
-          'create',
-          '--client-id',
-          brandonClient.client_id,
-          '--amount',
-          '100',
-          '--yes',
-          '--json',
-        ],
-        mockEnv(server, configDir, withClients([brandonClient])),
-      );
-
-      expect(result.code).toBe(0);
-      expect(callsNamed(server.toolCalls, 'list_clients')).toHaveLength(0);
-      expect(callsNamed(server.toolCalls, 'create_invoice')).toHaveLength(1);
-    } finally {
-      await server.close();
-      await rm(configDir, { recursive: true, force: true });
-    }
-  });
-
-  it('keeps the write gate before create_invoice without --yes', async () => {
-    const server = await createMockMcpServer();
-    const configDir = await tempConfig();
-    try {
-      const result = await runCli(
-        ['invoice', 'create', '--client', 'Brandon Chu', '--amount', '100', '--json'],
-        mockEnv(server, configDir, withClients([brandonClient])),
-      );
-
-      expect(result.code).toBe(4);
-      expect(parseJsonStdout(result.stdout)).toMatchObject({
-        ok: false,
-        error: { code: 'permission' },
-      });
-      expect(callsNamed(server.toolCalls, 'list_clients')).toHaveLength(1);
-      expect(callsNamed(server.toolCalls, 'create_invoice')).toHaveLength(0);
-    } finally {
-      await server.close();
-      await rm(configDir, { recursive: true, force: true });
-    }
-  });
+it('passes a reviewed binding unchanged and never refreshes it on pending approval or later retry', async () => {
+  const server = await createMockMcpServer(); const config = await tempConfig();
+  const binding = {digest:'a'.repeat(64),to:'reviewed@example.com',cc:['z@example.com','a@example.com']};
+  const file = path.join(config,'recipients.json'); writeFileSync(file,JSON.stringify(binding));
+  const args = ['invoice','send',person.id,'--recipients',file,'--yes','--allow-destructive','--json'];
+  try {
+    const preview = await runCli(['invoice','preview-send',person.id,'--json'],mockEnv(server,config));
+    expect(preview.code).toBe(0); expect(server.toolCalls).toEqual([{name:'preview_document_send',arguments:{document_kind:'invoice',document_id:person.id}}]);
+    server.clearToolCalls();
+    expect((await runCli(args,mockEnv(server,config,{EVERYAI_MOCK_DESTRUCTIVE_RESULT:'human_approval'}))).code).toBe(4);
+    expect((await runCli(args,mockEnv(server,config))).code).toBe(0);
+    expect(server.toolCalls).toEqual(Array(2).fill({name:'send_invoice',arguments:{invoice_id:person.id,recipients:binding}}));
+    server.clearToolCalls(); writeFileSync(file,JSON.stringify({...binding, method_ids:['invented']}));
+    expect((await runCli(args,mockEnv(server,config))).code).toBe(2); expect(server.toolCalls).toEqual([]);
+  } finally {await server.close(); await rm(config,{recursive:true,force:true});}
 });

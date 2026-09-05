@@ -84,6 +84,10 @@ function overrideClassification(name: string): Classification | undefined {
     };
   }
 
+  if (name === 'end_affiliation') {
+    return { level: 'destructive', source: 'override', reason: 'Ending an affiliation invalidates dependent recipients and Portal permissions.' };
+  }
+
   if (name === 'record_payment') {
     return {
       level: 'destructive',

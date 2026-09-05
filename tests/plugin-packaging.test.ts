@@ -23,6 +23,9 @@ describe('agent plugin packaging', () => {
       repository: 'https://github.com/Every-AI-Inc/everyai-cli',
     });
     expect(manifest.version).toBeUndefined();
+    expect(manifest.description).toContain('People, Companies');
+    const marketplace = JSON.parse(readFileSync(new URL('../.agents/plugins/marketplace.json', import.meta.url), 'utf8'));
+    expect(marketplace.plugins[0].description).toBe(manifest.description);
     expect(readdirSync(new URL('../.claude-plugin/', import.meta.url))).toEqual(['plugin.json']);
   });
 });

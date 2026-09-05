@@ -17,7 +17,8 @@ import {
   toolsListCommand,
 } from './commands/tools.js';
 import {
-  contactListCommand,
+  networkListCommand,
+  invoicePreviewSendCommand,
   dealListCommand,
   dealMoveCommand,
   invoiceCreateCommand,
@@ -154,7 +155,7 @@ withGlobalOptions(
   await toolsListCommand({
     json: opts.json,
     staging: opts.staging,
-    noCache: opts.noCache,
+    noCache: opts.cache === false || opts.noCache,
     filter: opts.filter,
   });
 });
@@ -170,7 +171,7 @@ withGlobalOptions(
   await toolsDescribeCommand(name, {
     json: opts.json,
     staging: opts.staging,
-    noCache: opts.noCache,
+    noCache: opts.cache === false || opts.noCache,
   });
 });
 
@@ -215,7 +216,7 @@ withGlobalOptions(
   await toolCallCommand(name, {
     json: opts.json,
     staging: opts.staging,
-    noCache: opts.noCache,
+    noCache: opts.cache === false || opts.noCache,
     args: opts.args,
     arg: opts.arg,
     yes: opts.yes,
@@ -235,10 +236,10 @@ const invoiceCommand = withToolExecutionOptions(
         [
           '',
           'Create a simple invoice:',
-          '  every invoice create --client "Acme" --amount 100 --yes --json',
+          '  every invoice create --party "Acme" --operation-id <uuid> --amount 100 --yes --json',
           '',
           'For rich invoices, use the full tool:',
-          '  every tool call create_invoice --arg client_id=<id> --arg line_items=\'[{"description":"Work","quantity":1,"unit_price":100}]\'',
+          '  every tool call create_invoice --arg command=\'{"operation_id":"<uuid>","party":{"kind":"person","id":"<uuid>"},"line_items":[{"description":"Work","quantity":1,"unit_price":100}]}\'',
           '  every tool call create_invoice --args -',
           '  every tool call create_invoice --args file.json',
           '',
@@ -252,8 +253,10 @@ withGlobalOptions(
     invoiceCommand
       .command('create')
       .description('Create a simple draft invoice')
-      .option('--client <name>', 'client name to resolve with list_clients')
-      .option('--client-id <id>', 'client id; skips client-name resolution')
+      .option('--party <name-or-email>', 'search People and Companies; ambiguity requires an explicit typed ID')
+      .option('--party-kind <kind>', 'person or company; optionally restrict name search')
+      .option('--party-id <id>', 'verified Person or Company UUID; requires --party-kind')
+      .requiredOption('--operation-id <uuid>', 'stable operation UUID; reuse only for the identical request')
       .requiredOption('--amount <n>', 'unit price for the single line item')
       .option('--description <text>', 'line item description')
       .option('--quantity <q>', 'line item quantity'),
@@ -263,13 +266,15 @@ withGlobalOptions(
   await invoiceCreateCommand({
     json: opts.json,
     staging: opts.staging,
-    noCache: opts.noCache,
+    noCache: opts.cache === false || opts.noCache,
     yes: opts.yes,
     allowDestructive: opts.allowDestructive,
     readOnly: opts.readOnly,
     timeout: opts.timeout,
-    client: opts.client,
-    clientId: opts.clientId,
+    party: opts.party,
+    partyKind: opts.partyKind,
+    partyId: opts.partyId,
+    operationId: opts.operationId,
     amount: opts.amount,
     description: opts.description,
     quantity: opts.quantity,
@@ -290,7 +295,7 @@ withGlobalOptions(
   await invoiceListCommand({
     json: opts.json,
     staging: opts.staging,
-    noCache: opts.noCache,
+    noCache: opts.cache === false || opts.noCache,
     yes: opts.yes,
     allowDestructive: opts.allowDestructive,
     readOnly: opts.readOnly,
@@ -305,21 +310,30 @@ withGlobalOptions(
   withToolExecutionOptions(
     invoiceCommand
       .command('send')
-      .description('Send an invoice')
-      .argument('<invoice_id>', 'invoice id'),
+      .description('Send an invoice using reviewed recipient binding')
+      .argument('<invoice_id>', 'invoice id')
+      .requiredOption('--recipients <file>', 'JSON file containing the exact reviewed preview recipients object'),
   ),
 ).action(async (invoiceId: string, _options: unknown, command: Command) => {
   const opts = command.optsWithGlobals();
   await invoiceSendCommand(invoiceId, {
+    recipients: opts.recipients,
     json: opts.json,
     staging: opts.staging,
-    noCache: opts.noCache,
+    noCache: opts.cache === false || opts.noCache,
     yes: opts.yes,
     allowDestructive: opts.allowDestructive,
     readOnly: opts.readOnly,
     timeout: opts.timeout,
   });
 });
+
+withGlobalOptions(withToolExecutionOptions(invoiceCommand.command('preview-send')
+  .description('Preview the exact invoice To/CC and recipient digest without sending')
+  .argument('<invoice_id>', 'invoice id'))).action(async (id: string, _opts: unknown, command: Command) => {
+    const opts = command.optsWithGlobals();
+    await invoicePreviewSendCommand(id, { ...opts, noCache: opts.cache === false || opts.noCache });
+  });
 
 const dealCommand = withToolExecutionOptions(
   withGlobalOptions(
@@ -344,7 +358,7 @@ withGlobalOptions(
   await dealListCommand({
     json: opts.json,
     staging: opts.staging,
-    noCache: opts.noCache,
+    noCache: opts.cache === false || opts.noCache,
     yes: opts.yes,
     allowDestructive: opts.allowDestructive,
     readOnly: opts.readOnly,
@@ -368,7 +382,7 @@ withGlobalOptions(
   await dealMoveCommand(dealId, stage, {
     json: opts.json,
     staging: opts.staging,
-    noCache: opts.noCache,
+    noCache: opts.cache === false || opts.noCache,
     yes: opts.yes,
     allowDestructive: opts.allowDestructive,
     readOnly: opts.readOnly,
@@ -376,37 +390,19 @@ withGlobalOptions(
   });
 });
 
-const contactCommand = withToolExecutionOptions(
-  withGlobalOptions(
-    program
-      .command('contact')
-      .description('Work with contacts')
-      .addHelpText('after', TOOL_CALL_HELP),
-  ),
-);
-
-withGlobalOptions(
-  withToolExecutionOptions(
-    contactCommand
-      .command('list')
-      .description('List contacts')
-      .option('--search <q>', 'contact name search query')
-      .option('--limit <n>', 'maximum number of contacts to return'),
-  ),
-).action(async (_options: unknown, command: Command) => {
-  const opts = command.optsWithGlobals();
-  await contactListCommand({
-    json: opts.json,
-    staging: opts.staging,
-    noCache: opts.noCache,
-    yes: opts.yes,
-    allowDestructive: opts.allowDestructive,
-    readOnly: opts.readOnly,
-    timeout: opts.timeout,
-    search: opts.search,
-    limit: opts.limit,
-  });
-});
+for (const kind of ['person', 'company'] as const) {
+  const networkCommand = withToolExecutionOptions(withGlobalOptions(program.command(kind)
+    .description(`Work with ${kind === 'person' ? 'People' : 'Companies'}`)
+    .addHelpText('after', TOOL_CALL_HELP)));
+  withGlobalOptions(withToolExecutionOptions(networkCommand.command('list')
+    .description(`Search ${kind === 'person' ? 'People' : 'Companies'}`)
+    .option('--search <q>', 'name, email or phone query')
+    .option('--limit <n>', 'page size, 1–100')
+    .option('--offset <n>', 'page offset'))).action(async (_opts: unknown, command: Command) => {
+      const opts = command.optsWithGlobals();
+      await networkListCommand(kind, { ...opts, noCache: opts.cache === false || opts.noCache });
+    });
+}
 
 const policyCommand = withGlobalOptions(
   program.command('policy').description('Explain local tool safety policy'),

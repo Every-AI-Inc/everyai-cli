@@ -1,6 +1,6 @@
 # @everyai/cli
 
-The **agent-agnostic** command line for [Every AI](https://every.ai) — manage invoices, clients, contacts, proposals, deals, and pipeline work from any shell, coding agent, or CI job.
+The **agent-agnostic** command line for [Every AI](https://every.ai) — manage invoices, People, Companies, proposals, deals, and pipeline work from any shell, coding agent, or CI job.
 
 Install once, log in once, and teach each coding agent the same `every` command instead of wiring MCP + OAuth separately into every host.
 
@@ -17,8 +17,7 @@ One-shot invoice example with inline args:
 ```bash
 every invoice list --status overdue --json
 every tool call create_invoice \
-  --arg client_id=client_123 \
-  --arg line_items='[{"description":"Strategy work","quantity":1,"unit_price":1500}]' \
+  --arg command='{"operation_id":"<new-uuid>","party":{"kind":"person","id":"<person-uuid>"},"line_items":[{"description":"Strategy work","quantity":1,"unit_price":1500}]}' \
   --yes \
   --json
 ```
@@ -62,15 +61,24 @@ every tool call <name> [--args file.json|-] [--arg k=v ...] [--yes] [--allow-des
 
 # Curated aliases (same gates, nicer flags)
 every invoice list [--status <s>] [--search <q>] [--limit <n>]
-every invoice send <invoice_id>            # destructive: needs --yes --allow-destructive
+every invoice create --party "Acme" --operation-id <uuid> --amount 100 --yes --json
+every invoice preview-send <invoice_id> --json
+every invoice send <invoice_id> --recipients recipients.json --yes --allow-destructive --json
 every deal list [--stage <s>] [--search <q>]
 every deal move <deal_id> <stage>          # write: needs --yes
-every contact list [--search <q>]
+every person list [--search <q>] [--limit <n>] [--offset <n>]
+every company list [--search <q>] [--limit <n>] [--offset <n>]
 
 # Teach your coding agent to use all of this well
 every skills install claude    # → .claude/skills/use-every/
 every skills install codex     # → .agents/skills/use-every/
 ```
+
+Invoice name/email resolution searches both People and Companies and requires complete pages before selecting a unique typed identity. Ambiguity returns names, avatars and `kind:id` choices. Select explicitly with `--party-kind person|company --party-id <uuid>`. No Company is created as a prerequisite.
+
+Keep the same `--operation-id` only when retrying the identical invoice creation; use a new UUID for new work. For sending, save the exact `data.structured_content.recipients` object from the preview to `recipients.json`, review its To/CC, and pass that file unchanged. Do not obtain a new preview to retry an already approved send. A changed method or relationship invalidates the old digest.
+
+If a cached catalog lacks the new tools, use `--no-cache`. There is no fallback to retired contact/client mutations.
 
 ## Login and account creation
 
@@ -99,7 +107,7 @@ Target precedence: `--staging` > `EVERY_MCP_URL` > `EVERY_ENV=staging|production
 
 ## Status
 
-Pre-release. Built against Every's production MCP surface; `--staging` targets Every's internal staging environment.
+This branch requires the People/Companies MCP release before its aliases can run. Publishing is a separate release step; `--staging` targets Every's internal staging environment.
 
 ## Development
 

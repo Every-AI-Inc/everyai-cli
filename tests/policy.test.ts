@@ -22,7 +22,7 @@ function isOverridden(name: string): boolean {
   return (
     name === 'ask_assistant' ||
     name === 'record_payment' ||
-    name === 'run_recurring_invoice_now' ||
+    name === 'run_recurring_invoice_now' || name === 'end_affiliation' || name === 'approve_pending_deal' ||
     /^delete_|^void_|^send_|^cancel_/.test(name)
   );
 }
@@ -35,7 +35,8 @@ function tool(name: string): FixtureTool {
 
 describe('policy classification', () => {
   it('covers the full snapshotted live tool registry', () => {
-    expect(tools).toHaveLength(85);
+    expect(new Set(tools.map(tool => tool.name)).size).toBe(tools.length);
+    expect(tools.map(tool => tool.name)).toEqual(expect.arrayContaining(['list_people','list_companies','create_person','create_company','end_affiliation']));
   });
 
   it('classifies destructive name and financial-record overrides as destructive', () => {
@@ -203,4 +204,13 @@ describe('policy requirements', () => {
       denialMessage: expect.stringContaining('read-only mode'),
     });
   });
+});
+
+
+it('pins end_affiliation destructive even if a stale server advertises read-only', () => {
+  const policy = classify({name: 'end_affiliation', annotations: {readOnlyHint: true, destructiveHint: false}});
+  expect(policy.level).toBe('destructive');
+  expect(requirementFor(policy.level, {interactive: false, yes: true}).allowed).toBe(false);
+  expect(requirementFor(policy.level, {interactive: false, yes: true, allowDestructive: true}).allowed).toBe(true);
+  expect(requirementFor(policy.level, {interactive: false, yes: true, allowDestructive: true, readOnlyMode: true}).allowed).toBe(false);
 });

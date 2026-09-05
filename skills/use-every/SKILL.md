@@ -1,6 +1,6 @@
 ---
 name: use-every
-description: Drive the Every AI CLI (`every`) to manage the user's service business — invoices, clients, contacts, proposals, deals, pipeline, payments, services, custom fields, and scheduled tasks. Use when the user asks “who owes me money?”, wants a lead or deal follow-up, asks to look up, create, update, convert, or send a business record, or mentions their Every workspace.
+description: Drive the Every AI CLI (`every`) to manage the user's service business — invoices, People, Companies, proposals, deals, pipeline, payments, services, custom fields, and scheduled tasks. Use when the user asks “who owes me money?”, wants a lead or deal follow-up, asks to look up, create, update, convert, or send a business record, or mentions their Every workspace.
 ---
 
 # Use Every
@@ -13,14 +13,14 @@ For headless use, accept `EVERY_TOKEN` from the environment instead of browser l
 
 ## What Every Is
 
-Use Every as a service-business workspace for the sales pipeline, deals, contacts and clients, proposals, invoices, payments, and services. The authenticated CLI operates on one connected Every workspace at a time. If the user means a different business, tell them to switch accounts in Every.
+Use Every as a service-business workspace for the sales pipeline, deals, People and Companies, proposals, invoices, payments, and services. The authenticated CLI operates on one connected Every workspace at a time. If the user means a different business, tell them to switch accounts in Every.
 
 ## Required Workflow
 
-1. Resolve records with list/view commands. Never guess an ID; use the exact ID returned in `[id: ...]`. If a name is ambiguous, show the candidates and ask.
+1. Resolve records with list/view commands. Never guess an ID; use the exact typed `kind` + `id` returned in `structured_content`. If a name is ambiguous, show the candidates and ask.
 2. Before a write, state exactly what will be created or changed, including amounts and recipients.
-3. Get explicit approval before anything client-visible or financially consequential, including sends, deletes, voids, and recording payments.
-4. Execute with complete inputs, then echo the returned number, status, total, and `public_url`. Suggest the natural next step. Share only `public_url` links with clients, never internal IDs.
+3. Get explicit approval before anything externally visible or financially consequential, including sends, deletes, voids, and recording payments.
+4. Execute with complete inputs, then echo the returned number, status, total, and `public_url`. Suggest the natural next step. Share only `public_url` links with recipients, never internal IDs.
 
 ## CLI Contract
 
@@ -71,10 +71,10 @@ Use `every whoami --json` to verify the authenticated user, org, environment, ba
 
 ### Deal activity auto-tracking is creation-only
 
-Creating a proposal or invoice automatically records activity on a matching deal when exactly one deal/client matches. After an Every creation command, never double-log that action:
+Creating a proposal or invoice automatically records activity on a matching deal when exactly one Deal/typed party matches. After an Every creation command, never double-log that action:
 
 ```bash
-every invoice create --client-id <client_id> --amount 100 --yes --json
+every invoice create --party-kind person --party-id <person_id> --operation-id <new_uuid> --amount 100 --yes --json
 every tool call create_proposal --args proposal.json --yes --json
 ```
 
@@ -82,26 +82,21 @@ Use `log_deal_activity` ONLY for a completed outside event the user reports, suc
 
 ```bash
 every deal list --search "Acme" --json
-every tool call log_deal_activity --arg deal_id=<deal_id> --arg note="Call completed; client approved scope" --yes --json
+every tool call log_deal_activity --arg deal_id=<deal_id> --arg note="Call completed; buyer approved scope" --yes --json
 ```
 
-### Won deals require completed client promotion
+### People, Companies and Deal targets
 
-Pipeline stages are `lead`, `opportunity`, `won`, and `lost`:
+A Person has multiple email/phone methods and may work at multiple Companies or none. A Company can have its own mailbox with no People. Financial records and Deals can target either kind. Never create a Company merely to invoice a Person or move their Deal to Won. Use the actual versioned `update_person` / `update_company` command to archive a profile; read its current version first. Ending a relationship uses `end_affiliation` and both destructive flags after approval. Default send emails and affiliations do not grant Portal access.
 
-```bash
-every deal move <deal_id> won --yes --json
-```
-
-Moving to `won` requires completed client promotion. No CLI or chat tool can set that promotion. If the command returns a client-resolution error, tell the user to finish converting the contact to a client in the Every app, then retry the same command.
 
 ### Invoice rates and tax
 
 Treat `unit_price` as the per-unit rate, not the line total. The simple CLI's `--amount` maps to that per-unit rate:
 
 ```bash
-every invoice create --client-id <client_id> --description "Workshop" --quantity 3 --amount 100 --yes --json
-every tool call create_invoice --arg client_id=<client_id> --arg line_items='[{"description":"Workshop","quantity":3,"unit_price":100}]' --yes --json
+every invoice create --party-kind person --party-id <person_id> --operation-id <new_uuid> --description "Workshop" --quantity 3 --amount 100 --yes --json
+every tool call create_invoice --arg command='{"operation_id":"<new_uuid>","party":{"kind":"person","id":"<person_id>"},"line_items":[{"description":"Workshop","quantity":3,"unit_price":100}]}' --yes --json
 ```
 
 Leave `sales_tax_applied` unset so the business default applies. Never add tax as a line item. When currency, tax, or timezone matters, read settings first with `every tool call business_settings --json`; let Every compute tax, numbering, due dates, and totals.
@@ -119,7 +114,9 @@ Conversion creates a linked DRAFT invoice. Review the returned invoice ID, then 
 
 ```bash
 every tool call view_invoice --arg identifier=<invoice_id> --json
-every invoice send <invoice_id> --yes --allow-destructive --json
+every invoice preview-send <invoice_id> --json
+# Save the reviewed data.structured_content.recipients object as recipients.json.
+every invoice send <invoice_id> --recipients recipients.json --yes --allow-destructive --json
 ```
 
 ### Invoice re-sends
@@ -127,7 +124,9 @@ every invoice send <invoice_id> --yes --allow-destructive --json
 `send_invoice` re-sends the invoice email itself; it does not send custom reminder copy. For an overdue follow-up, confirm with the user, re-send the invoice, and give any custom message separately for the user to send:
 
 ```bash
-every invoice send <invoice_id> --yes --allow-destructive --json
+every invoice preview-send <invoice_id> --json
+# Save the reviewed data.structured_content.recipients object as recipients.json.
+every invoice send <invoice_id> --recipients recipients.json --yes --allow-destructive --json
 ```
 
 ### Gmail is draft-first
@@ -140,7 +139,7 @@ Calendar tools operate on the user's personal calendar. Confirm attendees and ti
 
 ### Custom fields are schema, not events
 
-`every tool call set_meta_fields ...` stores current state (e.g. a tracked boolean) on a contact, client, or deal; missing field definitions are created automatically, but check `every tool call list_meta_field_definitions --json` first and reuse an existing one when it fits. Something that *happened* (a call, visit, touchpoint) belongs in `log_deal_activity`, not a meta field. Tags are the `custom.tags` list field, not a separate feature.
+`every tool call set_meta_fields ...` stores current state (e.g. a tracked boolean) on a Person, Company, or Deal; missing field definitions are created automatically, but check `every tool call list_meta_field_definitions --json` first and reuse an existing one when it fits. Something that *happened* (a call, visit, touchpoint) belongs in `log_deal_activity`, not a meta field. Tags are the `custom.tags` list field, not a separate feature.
 
 ### Scheduled tasks report in-app, never in this session
 
@@ -171,6 +170,22 @@ Repeat each command with offsets `100`, `200`, and so on until complete. Report 
 
 ## Canonical Workflows
 
+### Create an invoice by name or secondary email
+
+```bash
+every whoami --json
+every invoice create --party "Brandon Chu" --operation-id <new_uuid> --amount 100 --yes --json
+```
+
+Search both kinds by default, or restrict with `--party-kind person|company`. Ambiguity/incomplete results return typed candidates with avatars; choose an explicit `--party-kind` plus `--party-id`, never infer from a UUID alone. Reuse the operation UUID only for the exact same request. For richer financial fields inspect the current `create_invoice` schema and supply the nested `command` object.
+
+### Send with reviewed recipients
+
+Run `invoice preview-send`, display the exact To/CC and save the returned recipients object without changes. Only after authorization call `invoice send --recipients <file>`. On human approval or timeout, retry the same invoice ID and file only after approval; do not silently refresh the preview. If the server reports stale recipients, stop, fetch a new preview and obtain new review. The digest binds recipient method IDs and resolved values server-side; the CLI must not construct it. This does not lock document content.
+
+Use `--no-cache` if the ten-minute catalog is stale. Missing new tools are a rollout/version mismatch; never substitute a retired contact/client write.
+
+
 Review the pipeline:
 
 ```bash
@@ -190,7 +205,7 @@ every tool call list_invoices --arg status=issued --arg limit=100 --arg offset=0
 every tool call view_invoice --arg identifier=<invoice_id> --json
 ```
 
-Paginate both filtered lists completely, then report client, invoice number, balance, due date, and totals. Offer to re-send an invoice after confirmation or record a payment only when the user reports it received.
+Paginate both filtered lists completely, then report Person/Company, invoice number, balance, due date, and totals. Offer to re-send an invoice after confirmation or record a payment only when the user reports it received.
 
 Convert an accepted proposal:
 
@@ -198,7 +213,9 @@ Convert an accepted proposal:
 every tool call view_proposal --arg identifier=<proposal_id> --json
 every tool call convert_proposal_to_invoice --arg proposal_id=<proposal_id> --yes --json
 every tool call view_invoice --arg identifier=<invoice_id> --json
-every invoice send <invoice_id> --yes --allow-destructive --json
+every invoice preview-send <invoice_id> --json
+# Save the reviewed data.structured_content.recipients object as recipients.json.
+every invoice send <invoice_id> --recipients recipients.json --yes --allow-destructive --json
 ```
 
 Stop if the proposal is not issued/approved. Review the linked draft and obtain approval before sending.
@@ -206,12 +223,12 @@ Stop if the proposal is not issued/approved. Review the linked draft and obtain 
 Intake a new lead:
 
 ```bash
-every contact list --search "person@example.com" --json
-every tool call create_contact --args contact.json --yes --json
+every person list --search "person@example.com" --json
+every tool call create_person --args person.json --yes --json
 every tool call create_deal --args deal.json --yes --json
 ```
 
-Search contacts first because email deduplication is real. Create only missing records, then progress the deal as the relationship develops.
+Search People and Companies first and paginate all results before treating them as complete. The same UUID can exist under both kinds; never dedupe across kinds. Shared email addresses do not prove identity. Create only a missing Person or real Company, then progress the Deal.
 
 For a general activity snapshot, combine complete/paginated invoice reads with recent payments and expenses. Use the currency from `business_settings`; if any source is only a partial page, describe it as recent activity rather than a definitive cash position.
 

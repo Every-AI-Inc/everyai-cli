@@ -1,29 +1,9 @@
-# CLI DX Evals
+# CLI evaluations
 
-## Cold-Start Invoice Round Trips
+The offline cold-start contract runs through real CLI subprocesses with a mock transport: `every docs`, `every whoami --json`, then `every invoice create --party "Brandon Chu" --operation-id <uuid> --amount 100 --yes --json`. The budget is at most five CLI invocations; ordinary server confirmation stays within the create invocation and reuses the exact operation and typed target.
 
-Metric: total CLI invocations needed for a skill-equipped agent to handle
-"invoice client Brandon Chu for $100" from a cold start.
+Run `npm test -- tests/eval-cold-start.test.ts` for typed resolution, mixed same-name/same-UUID identities, secondary-email queries, complete-page requirements, and no tool call before local write permission. `tests/cli.test.ts` retains trusted-confirmation, timeout, human-approval and policy regressions. Mock transport proves client behavior, not server/database compatibility.
 
-- v0.1.0 trace: 13 invocations.
-- Current CI budget: <= 5 invocations.
-- Expected mock path: exactly 3 invocations. The create invocation may make one
-  internal text-confirmation retry, but it must not cost the agent another CLI
-  round trip.
+`tools-alias-schemas.json` is generated from the candidate backend's actual registered FastMCP tools. The v1 historical fixture is retained solely for stale-catalog regressions, never used as a write fallback. The installed skill and plugin metadata are included in the package validation suite.
 
-CI runs the offline mock version on every push through `npm test`:
-
-```bash
-npm test -- tests/eval-cold-start.test.ts
-```
-
-Manual live staging check:
-
-```bash
-every docs
-every whoami --staging --json
-every invoice create --staging --client "Brandon Chu" --amount 100 --yes --json
-```
-
-Use `EVERY_EVAL_LIVE=1` only as a local operator signal for live eval runs; the
-checked-in test remains offline and mock-only.
+Actual CLI → FastMCP → signed PostgREST → isolated PostgreSQL evaluation is separately recorded in the branch handoff. Shared staging/prod tests and npm publication remain release steps after the backend is live. Never use real customer data for local write tests.

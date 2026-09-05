@@ -684,48 +684,6 @@ describe('CLI contract', () => {
     }
   });
 
-  it('reuses an alias resolved target instead of resolving it again for confirmation', async () => {
-    const server = await createMockMcpServer();
-    const configDir = await tempConfig();
-    try {
-      const result = await runCli(
-        [
-          'invoice',
-          'create',
-          '--client',
-          'Acme',
-          '--amount',
-          '100',
-          '--yes',
-          '--json',
-        ],
-        mockEnv(server, configDir, {
-          EVERYAI_MOCK_CONFIRMATION_GATE: '1',
-          EVERYAI_MOCK_LIST_CLIENTS_JSON: JSON.stringify([
-            { client_id: 'client_123', name: 'Acme', email: 'billing@acme.test' },
-          ]),
-        }),
-      );
-
-      expect(result.code).toBe(0);
-      const listCalls = server.toolCalls.filter((call) => call.name === 'list_clients');
-      const createCalls = server.toolCalls.filter((call) => call.name === 'create_invoice');
-      expect(listCalls).toHaveLength(1);
-      expect(createCalls).toHaveLength(2);
-      expect(createCalls[0].arguments).toEqual({
-        client_id: 'client_123',
-        line_items: [{ description: 'Services', quantity: 1, unit_price: 100 }],
-      });
-      expect(createCalls[1].arguments).toEqual({
-        ...createCalls[0].arguments,
-        confirmation: 'create invoice client_123',
-      });
-    } finally {
-      await server.close();
-      await rm(configDir, { recursive: true, force: true });
-    }
-  });
-
   it('stops after one text-confirmation retry when the server still rejects it', async () => {
     const server = await createMockMcpServer();
     const configDir = await tempConfig();
@@ -933,7 +891,7 @@ describe('CLI contract', () => {
     const configDir = await tempConfig();
     try {
       const result = await runCli(
-        ['invoice', 'send', 'inv_123', '--yes', '--allow-destructive', '--json'],
+        ['invoice', 'send', 'inv_123', '--recipients', 'tests/fixtures/recipients.json', '--yes', '--allow-destructive', '--json'],
         mockEnv(server, configDir, {
           EVERYAI_MOCK_CONFIRMATION_GATE: '1',
           EVERYAI_MOCK_DESTRUCTIVE_RESULT: 'human_approval',
@@ -954,7 +912,7 @@ describe('CLI contract', () => {
         },
       });
       expect(server.toolCalls).toEqual([
-        { name: 'send_invoice', arguments: { invoice_id: 'inv_123' } },
+        { name: 'send_invoice', arguments: { invoice_id: 'inv_123', recipients: { digest: 'a'.repeat(64), to: 'reviewed@example.test', cc: ['copy@example.test'] } } },
       ]);
     } finally {
       await server.close();
@@ -969,6 +927,7 @@ describe('CLI contract', () => {
       'invoice',
       'send',
       'inv_123',
+      '--recipients', 'tests/fixtures/recipients.json',
       '--yes',
       '--allow-destructive',
       '--json',
@@ -992,15 +951,15 @@ describe('CLI contract', () => {
         },
       });
       expect(server.toolCalls).toEqual([
-        { name: 'send_invoice', arguments: { invoice_id: 'inv_123' } },
+        { name: 'send_invoice', arguments: { invoice_id: 'inv_123', recipients: { digest: 'a'.repeat(64), to: 'reviewed@example.test', cc: ['copy@example.test'] } } },
       ]);
 
       const approvedRetry = await runCli(command, mockEnv(server, configDir));
 
       expect(approvedRetry.code).toBe(0);
       expect(server.toolCalls).toEqual([
-        { name: 'send_invoice', arguments: { invoice_id: 'inv_123' } },
-        { name: 'send_invoice', arguments: { invoice_id: 'inv_123' } },
+        { name: 'send_invoice', arguments: { invoice_id: 'inv_123', recipients: { digest: 'a'.repeat(64), to: 'reviewed@example.test', cc: ['copy@example.test'] } } },
+        { name: 'send_invoice', arguments: { invoice_id: 'inv_123', recipients: { digest: 'a'.repeat(64), to: 'reviewed@example.test', cc: ['copy@example.test'] } } },
       ]);
     } finally {
       await server.close();
@@ -1168,8 +1127,8 @@ describe('CLI contract', () => {
       { name: 'list_invoices', arguments: { payment_status: 'overdue', search: 'acme', limit: 3 } },
     ],
     [
-      ['invoice', 'send', 'inv_123', '--yes', '--allow-destructive', '--json'],
-      { name: 'send_invoice', arguments: { invoice_id: 'inv_123' } },
+      ['invoice', 'send', 'inv_123', '--recipients', 'tests/fixtures/recipients.json', '--yes', '--allow-destructive', '--json'],
+      { name: 'send_invoice', arguments: { invoice_id: 'inv_123', recipients: { digest: 'a'.repeat(64), to: 'reviewed@example.test', cc: ['copy@example.test'] } } },
     ],
     [
       ['deal', 'list', '--stage', 'opportunity', '--search', 'acme', '--limit', '4', '--json'],
@@ -1180,8 +1139,8 @@ describe('CLI contract', () => {
       { name: 'move_deal_stage', arguments: { deal_id: 'deal_123', stage: 'won' } },
     ],
     [
-      ['contact', 'list', '--search', 'Brandon', '--limit', '2', '--json'],
-      { name: 'list_contacts', arguments: { name: 'Brandon', limit: 2 } },
+      ['person', 'list', '--search', 'Brandon', '--limit', '2', '--json'],
+      { name: 'list_people', arguments: { query: 'Brandon', limit: 2 } },
     ],
   ])('maps alias %s to the expected tool call', async (args, expectedCall) => {
     const server = await createMockMcpServer();
@@ -1211,7 +1170,7 @@ describe('CLI contract', () => {
     const server = await createMockMcpServer();
     const configDir = await tempConfig();
     try {
-      const result = await runCli(['invoice', 'send', 'inv_123', '--json'], mockEnv(server, configDir));
+      const result = await runCli(['invoice', 'send', 'inv_123', '--recipients', 'tests/fixtures/recipients.json', '--json'], mockEnv(server, configDir));
 
       expect(result.code).toBe(4);
       expect(result.stderr).toBe('');

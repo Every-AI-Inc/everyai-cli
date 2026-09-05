@@ -4,7 +4,7 @@
   "plugins": [
     {
       "name": "every",
-      "description": "Run your business in Every — pipeline, invoices, proposals, contacts — via the every CLI",
+      "description": "Run your business in Every — People, Companies, pipeline, invoices and proposals — via the every CLI",
       "author": { "name": "Every AI Inc." },
       "homepage": "https://every.ai",
       "repository": "https://github.com/Every-AI-Inc/everyai-cli",
