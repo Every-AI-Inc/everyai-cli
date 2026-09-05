@@ -230,6 +230,25 @@ it('checks all subsequent pages before exposing ambiguous choices', async () => 
   } finally {await server.close(); await rm(config, {recursive: true, force: true});}
 });
 
+const fullPage = Array.from({length: 100}, (_, i) => ({...person,
+  id: `00000000-0000-4000-8000-${String(i + 100).padStart(12, '0')}`}));
+it.each([
+  [page([person, person], 2, false)],
+  [page(fullPage, 101, true), page([fullPage[0]], 101, false)],
+  [page(fullPage, 101, true), page([person], 102, false)],
+  [page([person], 1, true)],
+])('refuses inconsistent or duplicate typed pagination without a write', async (...pages) => {
+  const server = await createMockMcpServer(); const config = await tempConfig();
+  try {
+    const result = await runCli([...baseArgs, '--party', 'Brandon', '--party-kind', 'person'],
+      mockEnv(server, config, {EVERYAI_MOCK_PEOPLE: JSON.stringify(pages)}));
+    expect(result.code).toBe(6);
+    expect(parseJsonStdout(result.stdout)).toMatchObject({error: {incomplete: true}});
+    expect(server.toolCalls).toHaveLength(pages.length);
+    expect(server.toolCalls.every(call => call.name === 'list_people')).toBe(true);
+  } finally {await server.close(); await rm(config, {recursive: true, force: true});}
+});
+
 it('a stale v1 catalog never triggers a legacy alias fallback, and --no-cache refreshes it', async () => {
   const {readdir} = await import('node:fs/promises');
   const server = await createMockMcpServer(); const config = await tempConfig();

@@ -7,3 +7,18 @@ Run `npm test -- tests/eval-cold-start.test.ts` for typed resolution, mixed same
 `tools-alias-schemas.json` is generated from the candidate backend's actual registered FastMCP tools. The v1 historical fixture is retained solely for stale-catalog regressions, never used as a write fallback. The installed skill and plugin metadata are included in the package validation suite.
 
 Actual CLI → FastMCP → signed PostgREST → isolated PostgreSQL evaluation is separately recorded in the branch handoff. Shared staging/prod tests and npm publication remain release steps after the backend is live. Never use real customer data for local write tests.
+
+The live cold-start evaluation is `people-companies-cold-start-model.py claude|openai`.
+Run it with the API worktree's Python and the same `PC_API_WORKTREE`,
+`PC_SCHEMA_DSN`, and `PC_POSTGRES_BIN` settings as `people-companies-protocol.py`.
+It gives the model the planned `every docs --json` starting command and at most
+five compiled CLI invocations. A real secondary-email lookup, typed invoice,
+stable operation ID, ordinary confirmation retry and absence of a synthetic
+Company are checked against the local database. The model chooses subsequent
+commands; this is separate from the scripted mock cold-start tests.
+
+OAuth identity is injected through an isolated userinfo cache. The real settings
+handler reads captured org column definitions in the disposable fixture; it does
+not contact shared services. Only provider keys/model selectors are read from the
+private API env for the selected live model. Logs identify the model, binary hash,
+actual commands, database outcome and cleanup; no token is printed.

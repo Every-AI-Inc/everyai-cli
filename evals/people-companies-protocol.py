@@ -22,22 +22,25 @@ import uvicorn
 
 ROOT = Path(__file__).resolve().parents[1]
 API = Path(os.environ['PC_API_WORKTREE']).resolve()
+# Uninjected application I/O must never inherit a developer's shared DB.
+os.environ['SUPABASE_URL'] = 'http://127.0.0.1:59999'
+os.environ['SUPABASE_SERVICE_API_KEY'] = 'local-synthetic-only'
 sys.path[:0] = [str(API), str(API / 'tests/people_companies/mcp_writes')]
 import test_protocol as protocol
 
 
-def run():
+def run(scenario=None):
     protocol.FinancialProtocol.setUpClass()
     try:
         proof = protocol.FinancialProtocol()
         proof.setUp()
         from mcp_server.admin import server, network_tools
-        from mcp_server.admin.handlers import network, write_send
+        from mcp_server.admin.handlers import network, settings, write_send
         from services import member_reports_service, billing_authz, agent_chat_service
         import supabase_client
         transport = AsyncMock(return_value=(True, 'captured-only', None))
         with proof.adapters(), ExitStack() as stack, tempfile.TemporaryDirectory(prefix='pc-cli-proof-') as config:
-            for module in (supabase_client, member_reports_service, network_tools):
+            for module in (supabase_client, member_reports_service, network_tools, settings):
                 stack.enter_context(patch.object(module, 'supabase', proof.system))
             stack.enter_context(patch.object(network, 'record_mcp_event', AsyncMock()))
             stack.enter_context(patch.object(server, '_record_mcp_tool_call', Mock()))
@@ -64,6 +67,10 @@ def run():
                 env = {**os.environ, 'EVERY_MCP_URL': f'http://127.0.0.1:{port}', 'EVERY_CONFIG_DIR': config,
                        'EVERY_TOKEN': 'synthetic-identity-injected-at-server', 'EVERYAI_FORCE_FILE_STORE': '1'}
                 env.pop('NODE_OPTIONS', None)
+                if scenario is not None:
+                    scenario(proof, calls, env)
+                    transport.assert_not_awaited()
+                    return
                 def cli(*args, expect=0):
                     result = subprocess.run(['node', str(ROOT/'dist/index.js'), *args, '--json'], cwd=ROOT, env=env, text=True, capture_output=True, timeout=20)
                     assert result.returncode == expect, (args, result.returncode, result.stdout, result.stderr)
