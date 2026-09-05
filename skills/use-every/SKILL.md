@@ -103,12 +103,14 @@ Leave `sales_tax_applied` unset so the business default applies. Never add tax a
 
 ### Proposal to invoice
 
-Only issued or approved proposals convert. View the proposal first, use the conversion tool so the linkage is preserved, and never re-create the invoice manually:
+Only issued or approved proposals convert. View the proposal first and copy its exact `updated_at` revision. Use the conversion tool with a new operation UUID so the linkage is preserved; never re-create the invoice manually:
 
 ```bash
 every tool call view_proposal --arg identifier=<proposal_id> --json
-every tool call convert_proposal_to_invoice --arg proposal_id=<proposal_id> --yes --json
+every tool call convert_proposal_to_invoice --arg proposal_id=<proposal_id> --arg expected_updated_at=<updated_at_from_view> --arg operation_id=<new_uuid> --yes --json
 ```
+
+If the outcome is uncertain, retry the identical proposal UUID, revision and operation UUID. Do not reread a newer revision or generate another operation for that retry. The same rule applies to `duplicate_proposal` and `void_proposal`; void also requires the user's explicit approval and `--allow-destructive`.
 
 Conversion creates a linked DRAFT invoice. Review the returned invoice ID, then send only after the user approves:
 
@@ -211,7 +213,7 @@ Convert an accepted proposal:
 
 ```bash
 every tool call view_proposal --arg identifier=<proposal_id> --json
-every tool call convert_proposal_to_invoice --arg proposal_id=<proposal_id> --yes --json
+every tool call convert_proposal_to_invoice --arg proposal_id=<proposal_id> --arg expected_updated_at=<updated_at_from_view> --arg operation_id=<new_uuid> --yes --json
 every tool call view_invoice --arg identifier=<invoice_id> --json
 every invoice preview-send <invoice_id> --json
 # Save the reviewed data.structured_content.recipients object as recipients.json.

@@ -90,6 +90,7 @@ describe('skills commands', () => {
         schema_version: 1,
       });
       expect(existsSync(path.join(dir, 'use-every', 'SKILL.md'))).toBe(true);
+      expect(readFileSync(path.join(dir, 'use-every', 'SKILL.md'), 'utf8')).toBe(readFileSync(skillPath, 'utf8'));
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
