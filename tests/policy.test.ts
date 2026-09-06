@@ -23,6 +23,11 @@ function isOverridden(name: string): boolean {
     name === 'ask_assistant' ||
     name === 'record_payment' ||
     name === 'run_recurring_invoice_now' ||
+    name === 'approve_pending_deal' ||
+    name === 'create_client_deal' ||
+    name === 'set_deal_title' ||
+    name === 'link_deal_item' ||
+    name === 'unlink_deal_item' ||
     /^delete_|^void_|^send_|^cancel_/.test(name)
   );
 }
@@ -149,6 +154,59 @@ describe('policy classification', () => {
     // Even with no annotation metadata at all — the override doesn't depend on the server
     // continuing to send destructiveHint:false.
     expect(classify({ name: 'approve_pending_deal' })).toMatchObject({ level: 'write', source: 'override' });
+  });
+
+  it('pins the client-deal write tools via local overrides, with or without annotations', () => {
+    // The server annotates all four as neither read-only nor destructive, and none
+    // of them match the send_/delete_/void_/cancel_ auto-catch patterns.
+    const serverAnnotations = {
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    };
+
+    for (const name of ['create_client_deal', 'set_deal_title', 'link_deal_item']) {
+      expect(classify({ name, ...serverAnnotations })).toMatchObject({
+        level: 'write',
+        source: 'override',
+      });
+      expect(classify({ name })).toMatchObject({ level: 'write', source: 'override' });
+    }
+
+    // Removing an invoice/proposal link is permanent for the automatic matcher, so it
+    // sits at the same tier as unlink_contact_from_client even though the server's
+    // destructiveHint says otherwise.
+    expect(classify({ name: 'unlink_deal_item', ...serverAnnotations })).toMatchObject({
+      level: 'destructive',
+      source: 'override',
+    });
+    expect(classify({ name: 'unlink_deal_item' })).toMatchObject({
+      level: 'destructive',
+      source: 'override',
+    });
+
+    // Writes need only --yes; the unlink needs both destructive flags.
+    expect(requirementFor('write', { interactive: false, yes: true })).toEqual({ allowed: true });
+    expect(requirementFor('destructive', { interactive: false, yes: true })).toMatchObject({
+      allowed: false,
+      denialMessage: expect.stringContaining('--allow-destructive'),
+    });
+  });
+
+  it('leaves the read-only deal tool alone — no override, annotation decides', () => {
+    expect(
+      classify({
+        name: 'get_deal_burn',
+        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      }),
+    ).toMatchObject({ level: 'read', source: 'annotation' });
+    expect(requirementFor('read', { interactive: false })).toEqual({ allowed: true });
+
+    // Unknown-to-the-table reads still pass on their annotation, and a name the table
+    // has never seen with no annotation at all falls back to write, never read.
+    expect(classify({ name: 'get_some_future_report', readOnly: true })).toMatchObject({
+      level: 'read',
+      source: 'annotation',
+    });
+    expect(classify({ name: 'get_some_future_report' }).level).toBe('write');
   });
 
   it('explains high-risk tools correctly without annotation metadata', () => {
