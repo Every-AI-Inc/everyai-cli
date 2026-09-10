@@ -2,7 +2,7 @@
  {
   "name": "list_invoices",
   "title": "List invoices",
-  "description": "List and search invoices with optional filters for status, payment state, client, and more.\n\n    Supports filtering by invoice status (draft/issued/void), payment status (unpaid/paid/overdue/partial),\n    client, and archive state. Returns invoice number, client name, total, balance due, status, and due date.\n    Use payment_status=\"overdue\" (with order_by=\"due_date\") to answer \"who owes me?\" / \"what's overdue?\".\n    Responses include record ids; response_format='concise' returns trimmed rows (ids kept), 'detailed' adds links and secondary fields.\n    ",
+  "description": "List and search invoices with optional filters for status, payment state, Person or Company, and more.\n\n    Supports filtering by invoice status (draft/issued/void), payment status, Person or Company, and archive state.\n    Returns invoice number, Person or Company name, total, balance due, status, and due date.\n    Use payment_status=\"overdue\" (with order_by=\"due_date\") to answer \"who owes me?\" / \"what's overdue?\".\n    Responses include record ids; response_format='concise' returns trimmed rows (ids kept), 'detailed' adds links and secondary fields.\n    ",
   "inputSchema": {
    "properties": {
     "status": {
@@ -42,7 +42,7 @@
       "partial"
      ]
     },
-    "client_id": {
+    "company_id": {
      "anyOf": [
       {
        "type": "string"
@@ -52,7 +52,21 @@
       }
      ],
      "default": null,
-     "title": "Client Id"
+     "title": "Company Id",
+     "description": "Optional Company UUID filter, from list_companies."
+    },
+    "person_id": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Person Id",
+     "description": "Optional Person UUID filter, from list_people."
     },
     "is_archived": {
      "default": false,
@@ -276,11 +290,36 @@
  {
   "name": "create_invoice",
   "title": "Create invoice",
-  "description": "Create a new invoice with line items. Auto-generates invoice number and public URL.\n\n    BEFORE CALLING: Use business_settings to get default currency and tax rate.\n    Use list_services to find service IDs if linking line items to existing services.\n    Use list_companies/list_people to find the client_id by name.\n\n    Currency defaults to the business's configured currency if omitted.\n    Due date defaults to 30 days from today if omitted.\n    To apply tax, set sales_tax_applied on each line item (e.g. 0.13 for 13% HST).\n    ",
+  "description": "Create a draft invoice atomically with a new operation UUID and at least one line item.\n\n    Set command.party to {kind: person|company, id: UUID} from list_people/list_companies;\n    a draft may omit it until the recipient is known. No Company is created for a Person.\n    Use business_settings for currency/tax defaults and list_services for service IDs.\n    Omitted currency uses the business default; issue/due dates default to today/+30 days.\n    New line items must not carry retained IDs. Retry identical inputs with the same\n    operation UUID after an uncertain response; the same invoice is returned.\n    ",
   "inputSchema": {
    "$defs": {
-    "LineItem": {
-     "description": "A line item for an invoice or proposal.",
+    "FinancialParty": {
+     "description": "The Person or Company an invoice, proposal, expense, or deal targets.",
+     "properties": {
+      "kind": {
+       "enum": [
+        "person",
+        "company"
+       ],
+       "title": "Kind",
+       "type": "string"
+      },
+      "id": {
+       "format": "uuid",
+       "title": "Id",
+       "type": "string"
+      }
+     },
+     "required": [
+      "kind",
+      "id"
+     ],
+     "title": "FinancialParty",
+     "type": "object",
+     "additionalProperties": false
+    },
+    "NewLineItem": {
+     "description": "A new line item for an invoice or proposal.",
      "properties": {
       "description": {
        "description": "Description of the work or item",
@@ -289,12 +328,12 @@
       },
       "quantity": {
        "default": 1,
-       "description": "Number of units",
+       "description": "Number of units. Omitted quantity is preserved on a retained item; new items default to one.",
        "title": "Quantity",
        "type": "number"
       },
       "unit_price": {
-       "description": "Price per unit",
+       "description": "Price per unit; zero is valid.",
        "title": "Unit Price",
        "type": "number"
       },
@@ -308,7 +347,7 @@
         }
        ],
        "default": null,
-       "description": "Service ID from list_services (links to existing service)",
+       "description": "Service ID from list_services.",
        "title": "Service Id"
       },
       "discount_applied": {
@@ -321,7 +360,7 @@
         }
        ],
        "default": null,
-       "description": "Discount amount. With discount_type='percentage' use 0-100. With discount_type='fixed' use a positive amount in the invoice currency.",
+       "description": "Discount percent (0–100) or fixed amount, according to discount_type.",
        "title": "Discount Applied"
       },
       "discount_type": {
@@ -338,7 +377,6 @@
         }
        ],
        "default": null,
-       "description": "How discount_applied is interpreted.",
        "title": "Discount Type"
       },
       "sales_tax_applied": {
@@ -351,7 +389,7 @@
         }
        ],
        "default": null,
-       "description": "Tax rate as decimal (e.g. 0.13 for 13%). Get default from business_settings.",
+       "description": "Tax rate as a decimal, such as 0.13.",
        "title": "Sales Tax Applied"
       }
      },
@@ -359,88 +397,140 @@
       "description",
       "unit_price"
      ],
-     "title": "LineItem",
-     "type": "object"
+     "title": "NewLineItem",
+     "type": "object",
+     "additionalProperties": false
+    },
+    "InvoiceCreate": {
+     "properties": {
+      "operation_id": {
+       "format": "uuid",
+       "title": "Operation Id",
+       "type": "string",
+       "description": "Fresh UUID for this write; retry with the identical UUID after an uncertain response."
+      },
+      "line_items": {
+       "items": {
+        "$ref": "#/$defs/NewLineItem"
+       },
+       "minItems": 1,
+       "title": "Line Items",
+       "type": "array"
+      },
+      "party": {
+       "anyOf": [
+        {
+         "$ref": "#/$defs/FinancialParty"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "description": "{kind: person|company, id: UUID}. May be omitted on a draft until the recipient is known."
+      },
+      "deal_id": {
+       "anyOf": [
+        {
+         "format": "uuid",
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Deal Id"
+      },
+      "due_date": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Due Date",
+       "description": "Optional due date. Defaults to 30 days from today.",
+       "format": "date"
+      },
+      "issue_date": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Issue Date",
+       "description": "Optional issue date. Defaults to today.",
+       "format": "date"
+      },
+      "currency": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Currency",
+       "description": "Optional ISO 4217 currency code such as USD or CAD. Defaults to business_settings currency."
+      },
+      "notes": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Notes",
+       "description": "Optional customer-facing notes printed on the invoice."
+      },
+      "reference": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Reference"
+      },
+      "is_online_payment_enabled": {
+       "default": false,
+       "title": "Is Online Payment Enabled",
+       "type": "boolean",
+       "description": "Whether to enable online payment for this invoice when available."
+      }
+     },
+     "required": [
+      "operation_id",
+      "line_items"
+     ],
+     "title": "InvoiceCreate",
+     "type": "object",
+     "additionalProperties": false
     }
    },
    "properties": {
-    "client_id": {
-     "title": "Client Id",
-     "type": "string",
-     "description": "Client UUID returned by list_companies. Search by name first if needed."
-    },
-    "line_items": {
-     "items": {
-      "$ref": "#/$defs/LineItem"
-     },
-     "title": "Line Items",
-     "type": "array",
-     "description": "Invoice line items with description, quantity, unit_price, and optional tax/discount fields."
-    },
-    "due_date": {
-     "anyOf": [
-      {
-       "type": "string"
-      },
-      {
-       "type": "null"
-      }
-     ],
-     "default": null,
-     "title": "Due Date",
-     "description": "Optional due date. Defaults to 30 days from today.",
-     "format": "date"
-    },
-    "issue_date": {
-     "anyOf": [
-      {
-       "type": "string"
-      },
-      {
-       "type": "null"
-      }
-     ],
-     "default": null,
-     "title": "Issue Date",
-     "description": "Optional issue date. Defaults to today.",
-     "format": "date"
-    },
-    "currency": {
-     "anyOf": [
-      {
-       "type": "string"
-      },
-      {
-       "type": "null"
-      }
-     ],
-     "default": null,
-     "title": "Currency",
-     "description": "Optional ISO 4217 currency code such as USD or CAD. Defaults to business_settings currency."
-    },
-    "notes": {
-     "anyOf": [
-      {
-       "type": "string"
-      },
-      {
-       "type": "null"
-      }
-     ],
-     "default": null,
-     "title": "Notes",
-     "description": "Optional customer-facing notes printed on the invoice."
-    },
-    "is_online_payment_enabled": {
-     "default": false,
-     "title": "Is Online Payment Enabled",
-     "type": "boolean",
-     "description": "Whether to enable online payment for this invoice when available."
+    "command": {
+     "$ref": "#/$defs/InvoiceCreate"
     }
    },
    "required": [
-    "client_id",
-    "line_items"
+    "command"
    ],
    "title": "create_invoiceArguments",
    "type": "object"

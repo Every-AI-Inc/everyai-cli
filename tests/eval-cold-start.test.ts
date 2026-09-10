@@ -148,6 +148,15 @@ const brandonClient = {
   email: 'brandon@example.com',
 };
 
+// create_invoice's live server contract (mcp_server/admin/financial_models.py
+// InvoiceCreate, as of the party-argument migration): a UUID v4 operation_id.
+const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function targetIdFor(label: string): string {
+  const hex = Buffer.from(label.padEnd(12, '0').slice(0, 12)).toString('hex').slice(0, 12).padStart(12, '0');
+  return `00000000-0000-4000-8000-${hex}`;
+}
+
 describe('cold-start invoice eval', () => {
   it('keeps the documented agent path within the round-trip budget', async () => {
     const server = await createMockMcpServer();
@@ -177,6 +186,7 @@ describe('cold-start invoice eval', () => {
         data: {
           resolved_client: {
             client_id: brandonClient.client_id,
+            kind: 'company',
             name: brandonClient.name,
           },
           org: { org_id: 'org_123', org_name: 'Acme Co' },
@@ -185,25 +195,41 @@ describe('cold-start invoice eval', () => {
 
       const toolCalls = server.toolCalls;
       expect(callsNamed(toolCalls, 'list_companies')).toHaveLength(1);
-      expect(callsNamed(toolCalls, 'create_invoice')).toHaveLength(2);
+      const createCalls = callsNamed(toolCalls, 'create_invoice');
+      expect(createCalls).toHaveLength(2);
+
+      // The server's structured contract: create_invoice's single argument is
+      // `command: {operation_id, party: {kind, id}, line_items}` (client_id is
+      // retired on this tool). Both calls share one operation_id — the CLI's
+      // built-in confirmation retry must reuse it, never mint a second UUID.
+      const operationId = (createCalls[0].arguments.command as Record<string, unknown>)
+        .operation_id as string;
+      expect(operationId).toMatch(UUID_V4_RE);
+
       expect(toolCalls).toEqual([
         { name: 'list_companies', arguments: { query: 'Brandon Chu' } },
         {
           name: 'create_invoice',
           arguments: {
-            client_id: brandonClient.client_id,
-            line_items: [
-              { description: 'Services', quantity: 1, unit_price: 100 },
-            ],
+            command: {
+              operation_id: operationId,
+              party: { kind: 'company', id: brandonClient.client_id },
+              line_items: [
+                { description: 'Services', quantity: 1, unit_price: 100 },
+              ],
+            },
           },
         },
         {
           name: 'create_invoice',
           arguments: {
-            client_id: brandonClient.client_id,
-            line_items: [
-              { description: 'Services', quantity: 1, unit_price: 100 },
-            ],
+            command: {
+              operation_id: operationId,
+              party: { kind: 'company', id: brandonClient.client_id },
+              line_items: [
+                { description: 'Services', quantity: 1, unit_price: 100 },
+              ],
+            },
             confirmation: `create invoice ${brandonClient.client_id}`,
           },
         },
@@ -264,6 +290,97 @@ describe('cold-start invoice eval', () => {
       expect(invocations[1].code).toBe(0);
       expect(callsNamed(server.toolCalls, 'list_companies')).toHaveLength(0);
       expect(callsNamed(server.toolCalls, 'create_invoice')).toHaveLength(1);
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+});
+
+// Proves `every invoice create`'s built payload actually satisfies the live
+// create_invoice schema (tests/fixtures/tools-alias-schemas.json, mirrored from
+// mcp_server/admin/financial_models.py's InvoiceCreate/FinancialParty/NewLineItem).
+// A fixture pinned to the old flat client_id shape is exactly what let this ship
+// broken twice, so this reads the schema from the fixture rather than duplicating
+// field names by hand.
+describe('create_invoice payload matches the live server schema', () => {
+  const fixturePath = path.join(repoRoot, 'tests', 'fixtures', 'tools-alias-schemas.json');
+  const fixtureTools = JSON.parse(readFileSync(fixturePath, 'utf8')) as Array<{
+    name: string;
+    inputSchema: { $defs?: Record<string, { required?: string[]; properties?: Record<string, { enum?: unknown[] }> }> };
+  }>;
+  const defs = fixtureTools.find((tool) => tool.name === 'create_invoice')!.inputSchema.$defs!;
+  const invoiceCreateDef = defs.InvoiceCreate;
+  const financialPartyDef = defs.FinancialParty;
+  const newLineItemDef = defs.NewLineItem;
+
+  function assertRequiredKeys(value: Record<string, unknown>, required: string[] | undefined, label: string): void {
+    for (const key of required ?? []) {
+      expect(Object.prototype.hasOwnProperty.call(value, key), `${label} missing required "${key}"`).toBe(true);
+    }
+  }
+
+  it.each([
+    ['company' as const, targetIdFor('company')],
+    ['person' as const, targetIdFor('person')],
+  ])('sends a %s party under command that satisfies InvoiceCreate/FinancialParty/NewLineItem', async (kind, targetId) => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const args =
+        kind === 'company'
+          ? ['invoice', 'create', '--company', 'Acme', '--amount', '250', '--description', 'Consulting', '--quantity', '2', '--yes', '--json']
+          // A bare --client-id has no name to resolve, so pairing it with --person
+          // is the documented way to tell resolveClient the id is a Person, not a
+          // Company (the historical "client" default) — exercised here directly.
+          : ['invoice', 'create', '--client-id', targetId, '--person', 'Bob', '--amount', '250', '--description', 'Consulting', '--quantity', '2', '--yes', '--json'];
+      const env =
+        kind === 'company'
+          ? mockEnv(server, configDir, withClients([{ client_id: targetId, name: 'Acme' }]))
+          : mockEnv(server, configDir);
+
+      const result = await runCli(args, env);
+      expect(result.code).toBe(0);
+
+      const createCall = callsNamed(server.toolCalls, 'create_invoice')[0];
+      expect(createCall).toBeDefined();
+      const command = createCall.arguments.command as Record<string, unknown>;
+
+      assertRequiredKeys(command, invoiceCreateDef.required, 'command');
+      expect(command.operation_id).toMatch(UUID_V4_RE);
+      expect(Array.isArray(command.line_items)).toBe(true);
+      expect((command.line_items as unknown[]).length).toBeGreaterThanOrEqual(1);
+      expect(command).not.toHaveProperty('client_id');
+
+      const party = command.party as Record<string, unknown>;
+      assertRequiredKeys(party, financialPartyDef.required, 'command.party');
+      expect(financialPartyDef.properties!.kind.enum).toContain(party.kind);
+      expect(party.kind).toBe(kind);
+      expect(party.id).toBe(targetId);
+
+      for (const item of command.line_items as Record<string, unknown>[]) {
+        assertRequiredKeys(item, newLineItemDef.required, 'command.line_items[]');
+      }
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('defaults a bare --client-id (no --company/--person) to a company party', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    const targetId = targetIdFor('bare');
+    try {
+      const result = await runCli(
+        ['invoice', 'create', '--client-id', targetId, '--amount', '100', '--yes', '--json'],
+        mockEnv(server, configDir),
+      );
+
+      expect(result.code).toBe(0);
+      const createCall = callsNamed(server.toolCalls, 'create_invoice')[0];
+      const command = createCall.arguments.command as Record<string, unknown>;
+      expect(command.party).toEqual({ kind: 'company', id: targetId });
     } finally {
       await server.close();
       await rm(configDir, { recursive: true, force: true });

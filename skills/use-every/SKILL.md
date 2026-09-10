@@ -101,7 +101,7 @@ Treat `unit_price` as the per-unit rate, not the line total. The simple CLI's `-
 
 ```bash
 every invoice create --client-id <client_id> --description "Workshop" --quantity 3 --amount 100 --yes --json
-every tool call create_invoice --arg client_id=<client_id> --arg line_items='[{"description":"Workshop","quantity":3,"unit_price":100}]' --yes --json
+every tool call create_invoice --arg command='{"operation_id":"<uuid>","party":{"kind":"company","id":"<client_id>"},"line_items":[{"description":"Workshop","quantity":3,"unit_price":100}]}' --yes --json
 ```
 
 Leave `sales_tax_applied` unset so the business default applies. Never add tax as a line item. When currency, tax, or timezone matters, read settings first with `every tool call business_settings --json`; let Every compute tax, numbering, due dates, and totals.

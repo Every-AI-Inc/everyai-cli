@@ -712,9 +712,18 @@ describe('CLI contract', () => {
       const createCalls = server.toolCalls.filter((call) => call.name === 'create_invoice');
       expect(listCalls).toHaveLength(1);
       expect(createCalls).toHaveLength(2);
+
+      // create_invoice's argument is `command: {operation_id, party: {kind, id}, line_items}`
+      // (client_id is retired on this tool). The confirmation retry must reuse the
+      // exact same operation_id rather than resolving the alias target a second time.
+      const firstCommand = createCalls[0].arguments.command as Record<string, unknown>;
+      expect(firstCommand.operation_id).toMatch(/^[0-9a-f-]{36}$/i);
       expect(createCalls[0].arguments).toEqual({
-        client_id: 'client_123',
-        line_items: [{ description: 'Services', quantity: 1, unit_price: 100 }],
+        command: {
+          operation_id: firstCommand.operation_id,
+          party: { kind: 'company', id: 'client_123' },
+          line_items: [{ description: 'Services', quantity: 1, unit_price: 100 }],
+        },
       });
       expect(createCalls[1].arguments).toEqual({
         ...createCalls[0].arguments,

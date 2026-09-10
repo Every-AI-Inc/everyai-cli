@@ -100,6 +100,13 @@ function expectedConfirmation(name, args) {
   for (const key of identifyingArgs) {
     if (args[key]) return `${action} ${args[key]}`;
   }
+  // The live server's structured financial commands (create_invoice/create_proposal/
+  // create_expense) nest their identifying party under a top-level `command` object;
+  // update_invoice/update_proposal/update_expense nest it under `changes`; create_deal
+  // takes a bare top-level `party`. Mirror that so the confirmation phrase still names
+  // the target instead of silently falling back to just the action.
+  const partyId = args.command?.party?.id ?? args.changes?.party?.id ?? args.party?.id;
+  if (partyId) return `${action} ${partyId}`;
   return action;
 }
 

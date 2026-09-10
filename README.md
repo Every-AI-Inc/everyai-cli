@@ -17,8 +17,7 @@ One-shot invoice example with inline args:
 ```bash
 every invoice list --status overdue --json
 every tool call create_invoice \
-  --arg client_id=client_123 \
-  --arg line_items='[{"description":"Strategy work","quantity":1,"unit_price":1500}]' \
+  --arg command='{"operation_id":"<uuid>","party":{"kind":"company","id":"client_123"},"line_items":[{"description":"Strategy work","quantity":1,"unit_price":1500}]}' \
   --yes \
   --json
 ```

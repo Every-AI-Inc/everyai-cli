@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { CliError } from '../lib/errors.js';
 import { ExitCode } from '../lib/exit-codes.js';
 import {
@@ -42,8 +43,16 @@ const DEAL_STAGES = new Set(['lead', 'opportunity', 'won', 'lost']);
 // list_companies/list_people (the live People/Companies search tools) take a
 // free-text `query` param — the retired list_clients/list_contacts tools took `name`.
 const NETWORK_SEARCH_QUERY_PARAM = 'query';
-const CREATE_INVOICE_CLIENT_ID_PARAM = 'client_id';
+// create_invoice's arguments now nest under a single structured `command` object
+// (server commit that retired the flat client_id argument): command.operation_id
+// (a fresh UUID per write, reused only for the exact server-directed retry),
+// command.party = {kind: person|company, id}, and command.line_items.
+const CREATE_INVOICE_COMMAND_PARAM = 'command';
+const CREATE_INVOICE_OPERATION_ID_PARAM = 'operation_id';
+const CREATE_INVOICE_PARTY_PARAM = 'party';
 const CREATE_INVOICE_LINE_ITEMS_PARAM = 'line_items';
+const PARTY_KIND_PARAM = 'kind';
+const PARTY_ID_PARAM = 'id';
 const LINE_ITEM_DESCRIPTION_PARAM = 'description';
 const LINE_ITEM_QUANTITY_PARAM = 'quantity';
 const LINE_ITEM_UNIT_PRICE_PARAM = 'unit_price';
@@ -55,6 +64,10 @@ export interface ClientCandidate {
 
 export interface ResolvedClient {
   client_id: string;
+  // Every FinancialParty needs an explicit kind; a bare --client-id (no --company
+  // or --person alongside it) can't infer one from a name search, so it defaults
+  // to 'company' — the historical meaning of "client" in this CLI's own flags.
+  kind: 'company' | 'person';
   name: string | null;
 }
 
@@ -283,7 +296,9 @@ async function resolveClient(opts: InvoiceCreateOptions): Promise<ResolvedClient
   const clientId = nonEmpty(opts.clientId);
   const selector = selectParty(opts);
 
-  if (clientId) return { client_id: clientId, name: selector?.name ?? null };
+  if (clientId) {
+    return { client_id: clientId, kind: selector?.kind ?? 'company', name: selector?.name ?? null };
+  }
   if (!selector) {
     throw new CliError(
       '--client, --company, --person, or --client-id is required',
@@ -299,7 +314,9 @@ async function resolveClient(opts: InvoiceCreateOptions): Promise<ResolvedClient
   }));
   const candidates = parseClientCandidates(result);
 
-  if (candidates.length === 1) return candidates[0];
+  if (candidates.length === 1) {
+    return { client_id: candidates[0].client_id, kind: selector.kind, name: candidates[0].name };
+  }
 
   if (candidates.length === 0) {
     throw new CliError(
@@ -340,15 +357,24 @@ export async function invoiceCreateCommand(opts: InvoiceCreateOptions = {}): Pro
     : parsePositiveNumber(opts.quantity, '--quantity');
   const resolvedClient = await resolveClient(opts);
 
+  // A fresh operation_id per invocation, computed once here (not inside the args
+  // factory) so the one server-directed confirmation retry in tools.ts reuses this
+  // exact same closed-over `args` object/UUID instead of minting a second one.
   const args: Record<string, unknown> = {
-    [CREATE_INVOICE_CLIENT_ID_PARAM]: resolvedClient.client_id,
-    [CREATE_INVOICE_LINE_ITEMS_PARAM]: [
-      {
-        [LINE_ITEM_DESCRIPTION_PARAM]: opts.description ?? 'Services',
-        [LINE_ITEM_QUANTITY_PARAM]: quantity,
-        [LINE_ITEM_UNIT_PRICE_PARAM]: amount,
+    [CREATE_INVOICE_COMMAND_PARAM]: {
+      [CREATE_INVOICE_OPERATION_ID_PARAM]: randomUUID(),
+      [CREATE_INVOICE_PARTY_PARAM]: {
+        [PARTY_KIND_PARAM]: resolvedClient.kind,
+        [PARTY_ID_PARAM]: resolvedClient.client_id,
       },
-    ],
+      [CREATE_INVOICE_LINE_ITEMS_PARAM]: [
+        {
+          [LINE_ITEM_DESCRIPTION_PARAM]: opts.description ?? 'Services',
+          [LINE_ITEM_QUANTITY_PARAM]: quantity,
+          [LINE_ITEM_UNIT_PRICE_PARAM]: amount,
+        },
+      ],
+    },
   };
 
   await executeToolCall(

@@ -238,7 +238,7 @@ const invoiceCommand = withToolExecutionOptions(
           '  every invoice create --company "Acme" --amount 100 --yes --json',
           '',
           'For rich invoices, use the full tool:',
-          '  every tool call create_invoice --arg client_id=<id> --arg line_items=\'[{"description":"Work","quantity":1,"unit_price":100}]\'',
+          '  every tool call create_invoice --arg command=\'{"operation_id":"<uuid>","party":{"kind":"company","id":"<id>"},"line_items":[{"description":"Work","quantity":1,"unit_price":100}]}\'',
           '  every tool call create_invoice --args -',
           '  every tool call create_invoice --args file.json',
           '',
