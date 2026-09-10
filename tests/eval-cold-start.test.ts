@@ -132,7 +132,7 @@ function mockEnv(
 }
 
 function withClients(clients: Array<Record<string, unknown>>): NodeJS.ProcessEnv {
-  return { EVERYAI_MOCK_LIST_CLIENTS_JSON: JSON.stringify(clients) };
+  return { EVERYAI_MOCK_LIST_COMPANIES_JSON: JSON.stringify(clients) };
 }
 
 function callsNamed(
@@ -184,10 +184,10 @@ describe('cold-start invoice eval', () => {
       });
 
       const toolCalls = server.toolCalls;
-      expect(callsNamed(toolCalls, 'list_clients')).toHaveLength(1);
+      expect(callsNamed(toolCalls, 'list_companies')).toHaveLength(1);
       expect(callsNamed(toolCalls, 'create_invoice')).toHaveLength(2);
       expect(toolCalls).toEqual([
-        { name: 'list_clients', arguments: { name: 'Brandon Chu' } },
+        { name: 'list_companies', arguments: { query: 'Brandon Chu' } },
         {
           name: 'create_invoice',
           arguments: {
@@ -242,7 +242,7 @@ describe('cold-start invoice eval', () => {
         error: { code: 'not_found' },
       });
       expect((ambiguousEnvelope.error as { candidates: unknown[] }).candidates).toHaveLength(2);
-      expect(callsNamed(server.toolCalls, 'list_clients')).toHaveLength(1);
+      expect(callsNamed(server.toolCalls, 'list_companies')).toHaveLength(1);
       expect(callsNamed(server.toolCalls, 'create_invoice')).toHaveLength(0);
 
       server.clearToolCalls();
@@ -262,7 +262,7 @@ describe('cold-start invoice eval', () => {
 
       expect(invocations).toHaveLength(2);
       expect(invocations[1].code).toBe(0);
-      expect(callsNamed(server.toolCalls, 'list_clients')).toHaveLength(0);
+      expect(callsNamed(server.toolCalls, 'list_companies')).toHaveLength(0);
       expect(callsNamed(server.toolCalls, 'create_invoice')).toHaveLength(1);
     } finally {
       await server.close();
@@ -358,7 +358,7 @@ describe('invoice create command guards', () => {
     }
   });
 
-  it('bypasses list_clients when --client-id is supplied', async () => {
+  it('bypasses list_companies when --client-id is supplied', async () => {
     const server = await createMockMcpServer();
     const configDir = await tempConfig();
     try {
@@ -377,7 +377,7 @@ describe('invoice create command guards', () => {
       );
 
       expect(result.code).toBe(0);
-      expect(callsNamed(server.toolCalls, 'list_clients')).toHaveLength(0);
+      expect(callsNamed(server.toolCalls, 'list_companies')).toHaveLength(0);
       expect(callsNamed(server.toolCalls, 'create_invoice')).toHaveLength(1);
     } finally {
       await server.close();
@@ -399,7 +399,7 @@ describe('invoice create command guards', () => {
         ok: false,
         error: { code: 'permission' },
       });
-      expect(callsNamed(server.toolCalls, 'list_clients')).toHaveLength(1);
+      expect(callsNamed(server.toolCalls, 'list_companies')).toHaveLength(1);
       expect(callsNamed(server.toolCalls, 'create_invoice')).toHaveLength(0);
     } finally {
       await server.close();

@@ -701,14 +701,14 @@ describe('CLI contract', () => {
         ],
         mockEnv(server, configDir, {
           EVERYAI_MOCK_CONFIRMATION_GATE: '1',
-          EVERYAI_MOCK_LIST_CLIENTS_JSON: JSON.stringify([
+          EVERYAI_MOCK_LIST_COMPANIES_JSON: JSON.stringify([
             { client_id: 'client_123', name: 'Acme', email: 'billing@acme.test' },
           ]),
         }),
       );
 
       expect(result.code).toBe(0);
-      const listCalls = server.toolCalls.filter((call) => call.name === 'list_clients');
+      const listCalls = server.toolCalls.filter((call) => call.name === 'list_companies');
       const createCalls = server.toolCalls.filter((call) => call.name === 'create_invoice');
       expect(listCalls).toHaveLength(1);
       expect(createCalls).toHaveLength(2);
@@ -1181,7 +1181,7 @@ describe('CLI contract', () => {
     ],
     [
       ['contact', 'list', '--search', 'Brandon', '--limit', '2', '--json'],
-      { name: 'list_contacts', arguments: { name: 'Brandon', limit: 2 } },
+      { name: 'list_people', arguments: { query: 'Brandon', limit: 2 } },
     ],
   ])('maps alias %s to the expected tool call', async (args, expectedCall) => {
     const server = await createMockMcpServer();

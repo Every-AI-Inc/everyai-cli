@@ -26,6 +26,8 @@ interface InvoiceSendOptions extends ToolExecutionOptions {}
 
 interface InvoiceCreateOptions extends ToolExecutionOptions {
   client?: string;
+  company?: string;
+  person?: string;
   clientId?: string;
   amount?: string;
   description?: string;
@@ -37,7 +39,9 @@ interface DealMoveOptions extends ToolExecutionOptions {}
 const INVOICE_STATUSES = new Set(['draft', 'issued', 'void']);
 const PAYMENT_STATUSES = new Set(['unpaid', 'paid', 'overdue', 'partial']);
 const DEAL_STAGES = new Set(['lead', 'opportunity', 'won', 'lost']);
-const LIST_CLIENTS_NAME_PARAM = 'name';
+// list_companies/list_people (the live People/Companies search tools) take a
+// free-text `query` param — the retired list_clients/list_contacts tools took `name`.
+const NETWORK_SEARCH_QUERY_PARAM = 'query';
 const CREATE_INVOICE_CLIENT_ID_PARAM = 'client_id';
 const CREATE_INVOICE_LINE_ITEMS_PARAM = 'line_items';
 const LINE_ITEM_DESCRIPTION_PARAM = 'description';
@@ -137,7 +141,7 @@ function stripMarkdown(value: string): string {
 function cleanClientNameFromLine(value: string): string | undefined {
   let name = stripMarkdown(value)
     .replace(/^\s*(?:[-*+]|\d+[.)])\s*/, '')
-    .replace(/^client(?:\s+name)?:\s*/i, '')
+    .replace(/^(?:client|company|person)(?:\s+name)?:\s*/i, '')
     // Drop a trailing status parenthetical like "(active)" / "(archived)".
     .replace(/\s*\((?:active|inactive|archived)\)\s*$/i, '')
     .trim();
@@ -243,25 +247,55 @@ export function parseClientCandidates(result: {
   ]);
 }
 
-function clientCandidatesMessage(query: string, candidates: ClientCandidate[]): string {
+function partyCandidatesMessage(label: string, query: string, candidates: ClientCandidate[]): string {
   return [
-    `Multiple clients matching "${query}".`,
+    `Multiple ${label}s matching "${query}".`,
     ...candidates.map((candidate) => `${candidate.client_id}  ${candidate.name}`),
     'Re-run with --client-id <id>',
   ].join('\n');
 }
 
-async function resolveClient(opts: InvoiceCreateOptions): Promise<ResolvedClient> {
-  const clientId = nonEmpty(opts.clientId);
-  const clientName = nonEmpty(opts.client);
+interface PartySelector {
+  kind: 'company' | 'person';
+  name: string;
+}
 
-  if (clientId) return { client_id: clientId, name: clientName ?? null };
-  if (!clientName) {
-    throw new CliError('--client or --client-id is required', ExitCode.USAGE, 'usage');
+// --client is the deprecated alias for --company (the historical "client" concept is
+// now the Company record); --person resolves via the People half of the same schema.
+function selectParty(opts: InvoiceCreateOptions): PartySelector | undefined {
+  const companyName = nonEmpty(opts.company) ?? nonEmpty(opts.client);
+  const personName = nonEmpty(opts.person);
+
+  if (companyName && personName) {
+    throw new CliError(
+      'Use only one of --company/--client or --person to resolve the invoice recipient',
+      ExitCode.USAGE,
+      'usage',
+    );
   }
 
-  const result = await invokeToolCall('list_clients', opts, async () => ({
-    [LIST_CLIENTS_NAME_PARAM]: clientName,
+  if (personName) return { kind: 'person', name: personName };
+  if (companyName) return { kind: 'company', name: companyName };
+  return undefined;
+}
+
+async function resolveClient(opts: InvoiceCreateOptions): Promise<ResolvedClient> {
+  const clientId = nonEmpty(opts.clientId);
+  const selector = selectParty(opts);
+
+  if (clientId) return { client_id: clientId, name: selector?.name ?? null };
+  if (!selector) {
+    throw new CliError(
+      '--client, --company, --person, or --client-id is required',
+      ExitCode.USAGE,
+      'usage',
+    );
+  }
+
+  const tool = selector.kind === 'person' ? 'list_people' : 'list_companies';
+  const label = selector.kind;
+  const result = await invokeToolCall(tool, opts, async () => ({
+    [NETWORK_SEARCH_QUERY_PARAM]: selector.name,
   }));
   const candidates = parseClientCandidates(result);
 
@@ -269,14 +303,14 @@ async function resolveClient(opts: InvoiceCreateOptions): Promise<ResolvedClient
 
   if (candidates.length === 0) {
     throw new CliError(
-      `No client matching "${clientName}". Run: every tool call list_clients --json`,
+      `No ${label} matching "${selector.name}". Run: every tool call ${tool} --json`,
       ExitCode.NOT_FOUND,
       'not_found',
     );
   }
 
   throw new CliError(
-    clientCandidatesMessage(clientName, candidates),
+    partyCandidatesMessage(label, selector.name, candidates),
     ExitCode.NOT_FOUND,
     'not_found',
     { candidates },
@@ -348,8 +382,9 @@ export async function dealMoveCommand(
 
 export async function contactListCommand(opts: ContactListOptions = {}): Promise<void> {
   const args: Record<string, unknown> = {};
-  if (opts.search !== undefined) args.name = opts.search;
+  if (opts.search !== undefined) args[NETWORK_SEARCH_QUERY_PARAM] = opts.search;
   addLimit(args, opts.limit);
 
-  await executeToolCall('list_contacts', opts, async () => args);
+  // list_contacts is retired; list_people is the live People/Companies replacement.
+  await executeToolCall('list_people', opts, async () => args);
 }

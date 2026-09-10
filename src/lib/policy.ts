@@ -109,15 +109,16 @@ function overrideClassification(name: string): Classification | undefined {
     };
   }
 
-  // Client-deal tools (admin MCP, shipped 2026-09-03). None match the
-  // send_/delete_/void_/cancel_ name patterns, so without these entries their
-  // tier would rest entirely on server annotations.
-  if (name === 'create_client_deal') {
+  // Deal tools (admin MCP, shipped 2026-09-03; create_client_deal renamed to
+  // create_delivery_deal in the 2026-09-09 People/Companies retirement). None
+  // match the send_/delete_/void_/cancel_ name patterns, so without these
+  // entries their tier would rest entirely on server annotations.
+  if (name === 'create_delivery_deal') {
     return {
       level: 'write',
       source: 'override',
       reason:
-        'create_client_deal opens a new won deal for a client and makes the caller its delivery lead; pin write tier regardless of server annotation drift.',
+        'create_delivery_deal opens a new won deal for a Person or Company and makes the caller its delivery lead; pin write tier regardless of server annotation drift.',
     };
   }
 
@@ -144,7 +145,7 @@ function overrideClassification(name: string): Classification | undefined {
       level: 'destructive',
       source: 'override',
       reason:
-        'unlink_deal_item detaches an invoice or proposal from a deal and the automatic matcher never re-links it, so the relationship is gone for good; same destructive tier as unlink_contact_from_client.',
+        'unlink_deal_item detaches an invoice or proposal from a deal and the automatic matcher never re-links it, so the relationship is gone for good; same destructive tier as end_affiliation.',
     };
   }
 

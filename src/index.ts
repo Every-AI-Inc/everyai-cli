@@ -235,7 +235,7 @@ const invoiceCommand = withToolExecutionOptions(
         [
           '',
           'Create a simple invoice:',
-          '  every invoice create --client "Acme" --amount 100 --yes --json',
+          '  every invoice create --company "Acme" --amount 100 --yes --json',
           '',
           'For rich invoices, use the full tool:',
           '  every tool call create_invoice --arg client_id=<id> --arg line_items=\'[{"description":"Work","quantity":1,"unit_price":100}]\'',
@@ -252,8 +252,10 @@ withGlobalOptions(
     invoiceCommand
       .command('create')
       .description('Create a simple draft invoice')
-      .option('--client <name>', 'client name to resolve with list_clients')
-      .option('--client-id <id>', 'client id; skips client-name resolution')
+      .option('--client <name>', 'company name to resolve via list_companies (deprecated alias for --company)')
+      .option('--company <name>', 'company name to resolve via list_companies')
+      .option('--person <name>', 'person name to resolve via list_people')
+      .option('--client-id <id>', 'client id; skips name resolution')
       .requiredOption('--amount <n>', 'unit price for the single line item')
       .option('--description <text>', 'line item description')
       .option('--quantity <q>', 'line item quantity'),
@@ -269,6 +271,8 @@ withGlobalOptions(
     readOnly: opts.readOnly,
     timeout: opts.timeout,
     client: opts.client,
+    company: opts.company,
+    person: opts.person,
     clientId: opts.clientId,
     amount: opts.amount,
     description: opts.description,

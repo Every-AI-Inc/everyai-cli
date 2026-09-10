@@ -135,8 +135,10 @@ function response(body, status = 200) {
   });
 }
 
-function configuredClients() {
-  const raw = process.env.EVERYAI_MOCK_LIST_CLIENTS_JSON;
+// list_clients is retired; list_companies is the live People/Companies search
+// tool the CLI's company-resolution alias now calls.
+function configuredCompanies() {
+  const raw = process.env.EVERYAI_MOCK_LIST_COMPANIES_JSON;
   if (!raw) return undefined;
 
   try {
@@ -155,10 +157,10 @@ function clientName(client) {
   return client.name ?? client.client_name ?? '';
 }
 
-function clientsMarkdown(clients) {
-  if (clients.length === 0) return 'No clients found.';
-  return clients
-    .map((client) => `- **${clientName(client)}** — ${client.email ?? 'no email'} [id: ${clientId(client)}]`)
+function companiesMarkdown(companies) {
+  if (companies.length === 0) return 'No companies found.';
+  return companies
+    .map((company) => `- **${clientName(company)}** — ${company.email ?? 'no email'} [id: ${clientId(company)}]`)
     .join('\n');
 }
 
@@ -351,9 +353,9 @@ if (enabled && stateFile) {
 
       const handlerArgs = { ...args };
       delete handlerArgs[confirmationArg];
-      const clients = name === 'list_clients' ? configuredClients() : undefined;
-      if (clients) {
-        const text = clientsMarkdown(clients);
+      const companies = name === 'list_companies' ? configuredCompanies() : undefined;
+      if (companies) {
+        const text = companiesMarkdown(companies);
         return response({
           jsonrpc: '2.0',
           id: body.id,

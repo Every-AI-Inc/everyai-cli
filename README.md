@@ -1,6 +1,6 @@
 # @everyai/cli
 
-The **agent-agnostic** command line for [Every AI](https://every.ai) — manage invoices, clients, contacts, proposals, deals, and pipeline work from any shell, coding agent, or CI job.
+The **agent-agnostic** command line for [Every AI](https://every.ai) — manage invoices, People, Companies, proposals, deals, and pipeline work from any shell, coding agent, or CI job.
 
 Install once, log in once, and teach each coding agent the same `every` command instead of wiring MCP + OAuth separately into every host.
 

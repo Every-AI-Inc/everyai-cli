@@ -140,78 +140,64 @@
   }
  },
  {
-  "name": "list_clients",
-  "title": "List clients",
-  "description": "Search clients by name (fuzzy matching \u2014 'acme' finds 'Acme Corp').\n\n    Also searches contact names linked to clients \u2014 so searching 'Brandon Chu' will find\n    a client named 'Brandon' if it has a contact named 'Brandon Chu'.\n\n    Returns client name, email, and status. Use include_contacts=true for contact details.\n    Always search before creating a new client to avoid duplicates.\n    Responses include record ids; response_format='concise' returns trimmed rows (ids kept), 'detailed' adds links and secondary fields.\n    ",
+  "name": "list_companies",
+  "title": "List Companies",
+  "description": "Search Companies. A Company can exist without People. Results include typed keys, avatars and profile versions; private fields obey your billing role. Page through has_more before treating results as complete.",
   "inputSchema": {
    "properties": {
-    "name": {
+    "query": {
+     "default": "",
+     "title": "Query",
+     "type": "string"
+    },
+    "archived": {
+     "default": false,
+     "title": "Archived",
+     "type": "boolean"
+    },
+    "limit": {
+     "default": 20,
+     "title": "Limit",
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 100
+    },
+    "offset": {
+     "default": 0,
+     "title": "Offset",
+     "type": "integer",
+     "minimum": 0
+    },
+    "filters": {
      "anyOf": [
       {
-       "type": "string"
+       "type": "object"
       },
       {
        "type": "null"
       }
      ],
      "default": null,
-     "title": "Name"
-    },
-    "is_archived": {
-     "default": false,
-     "title": "Is Archived",
-     "type": "boolean"
-    },
-    "include_contacts": {
-     "default": false,
-     "title": "Include Contacts",
-     "type": "boolean"
-    },
-    "limit": {
-     "default": 20,
-     "title": "Limit",
-     "type": "integer"
-    },
-    "offset": {
-     "default": 0,
-     "title": "Offset",
-     "type": "integer"
+     "title": "Filters",
+     "description": "Optional NetworkListFilters (name/email/phone/industry/etc)."
     },
     "order_by": {
-     "default": "name",
-     "title": "Order By",
-     "type": "string"
-    },
-    "order_desc": {
-     "default": false,
-     "title": "Order Desc",
-     "type": "boolean"
-    },
-    "response_format": {
-     "default": "detailed",
-     "enum": [
-      "concise",
-      "detailed"
+     "anyOf": [
+      {
+       "type": "array",
+       "items": {
+        "type": "object"
+       }
+      },
+      {
+       "type": "null"
+      }
      ],
-     "title": "Response Format",
-     "type": "string",
-     "description": "'detailed' (default) matches today's full output, including links and secondary fields. 'concise' trims each row to essentials but always keeps '[id: ...]' for follow-up view/write tools."
+     "default": null,
+     "title": "Order By"
     }
    },
-   "title": "list_clientsArguments",
-   "type": "object"
-  },
-  "outputSchema": {
-   "properties": {
-    "result": {
-     "title": "Result",
-     "type": "string"
-    }
-   },
-   "required": [
-    "result"
-   ],
-   "title": "list_clientsOutput",
+   "title": "list_companiesArguments",
    "type": "object"
   },
   "annotations": {
@@ -221,72 +207,64 @@
   }
  },
  {
-  "name": "list_contacts",
-  "title": "List contacts",
-  "description": "List contacts, optionally filtered by client. Shows name, email, phone, and role.",
+  "name": "list_people",
+  "title": "List People",
+  "description": "Search People by name, email, phone or employer. Results include typed keys, avatars and profile versions. Page through has_more before treating results as complete.",
   "inputSchema": {
    "properties": {
-    "client_id": {
-     "anyOf": [
-      {
-       "type": "string"
-      },
-      {
-       "type": "null"
-      }
-     ],
-     "default": null,
-     "title": "Client Id"
+    "query": {
+     "default": "",
+     "title": "Query",
+     "type": "string"
     },
-    "name": {
-     "anyOf": [
-      {
-       "type": "string"
-      },
-      {
-       "type": "null"
-      }
-     ],
-     "default": null,
-     "title": "Name"
-    },
-    "email": {
-     "anyOf": [
-      {
-       "type": "string"
-      },
-      {
-       "type": "null"
-      }
-     ],
-     "default": null,
-     "title": "Email"
+    "archived": {
+     "default": false,
+     "title": "Archived",
+     "type": "boolean"
     },
     "limit": {
      "default": 20,
      "title": "Limit",
-     "type": "integer"
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 100
     },
     "offset": {
      "default": 0,
      "title": "Offset",
-     "type": "integer"
+     "type": "integer",
+     "minimum": 0
+    },
+    "filters": {
+     "anyOf": [
+      {
+       "type": "object"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Filters",
+     "description": "Optional NetworkListFilters (name/email/phone/industry/etc)."
+    },
+    "order_by": {
+     "anyOf": [
+      {
+       "type": "array",
+       "items": {
+        "type": "object"
+       }
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Order By"
     }
    },
-   "title": "list_contactsArguments",
-   "type": "object"
-  },
-  "outputSchema": {
-   "properties": {
-    "result": {
-     "title": "Result",
-     "type": "string"
-    }
-   },
-   "required": [
-    "result"
-   ],
-   "title": "list_contactsOutput",
+   "title": "list_peopleArguments",
    "type": "object"
   },
   "annotations": {
@@ -298,7 +276,7 @@
  {
   "name": "create_invoice",
   "title": "Create invoice",
-  "description": "Create a new invoice with line items. Auto-generates invoice number and public URL.\n\n    BEFORE CALLING: Use business_settings to get default currency and tax rate.\n    Use list_services to find service IDs if linking line items to existing services.\n    Use list_clients to find the client_id by name.\n\n    Currency defaults to the business's configured currency if omitted.\n    Due date defaults to 30 days from today if omitted.\n    To apply tax, set sales_tax_applied on each line item (e.g. 0.13 for 13% HST).\n    ",
+  "description": "Create a new invoice with line items. Auto-generates invoice number and public URL.\n\n    BEFORE CALLING: Use business_settings to get default currency and tax rate.\n    Use list_services to find service IDs if linking line items to existing services.\n    Use list_companies/list_people to find the client_id by name.\n\n    Currency defaults to the business's configured currency if omitted.\n    Due date defaults to 30 days from today if omitted.\n    To apply tax, set sales_tax_applied on each line item (e.g. 0.13 for 13% HST).\n    ",
   "inputSchema": {
    "$defs": {
     "LineItem": {
@@ -389,7 +367,7 @@
     "client_id": {
      "title": "Client Id",
      "type": "string",
-     "description": "Client UUID returned by list_clients. Search by name first if needed."
+     "description": "Client UUID returned by list_companies. Search by name first if needed."
     },
     "line_items": {
      "items": {
@@ -696,7 +674,7 @@
  {
   "name": "ask_assistant",
   "title": "Ask assistant",
-  "description": "Read-only Q&A fallback. Use a specific tool first; reach for this only when no other tool fits.\n\n    PREFER specific tools whenever the request maps to one:\n    - Listing/filtering: list_invoices, list_clients, list_proposals, list_payments, list_expenses, list_services, list_contacts, list_deals, list_prospects, get_pipeline_summary\n    - Lookup by id/number/name: view_invoice, view_client, view_proposal, view_deal, view_prospect\n    - Read-only summaries: network_summary, get_daily_brief, get_heartbeat_summary, get_financial_report\n    - Mutations: create_invoice, create_proposal, create_client, create_contact, record_payment, send_invoice, create_deal, move_deal_stage, log_deal_activity, etc.\n    - Capability/help: what_every_does for \"what can Every do?\", get_home for onboarding/welcome.\n\n    USE THIS TOOL ONLY for analytical questions that span multiple data points and have no\n    direct tool \u2014 e.g. \"what's my revenue this quarter?\", \"which clients have the most\n    overdue invoices?\", \"summarize my pipeline this month\". It is read-only: writes,\n    drafts, sends, deletes, and external MCP actions are refused. For changes, use the\n    specific write tools (create_invoice, record_payment, send_invoice, create_deal,\n    move_deal_stage, log_deal_activity, etc.).\n\n    Simple questions answer in seconds on a warm conversation; complex analytical\n    questions can take a minute or more, so keep first questions focused. Follow-up\n    questions asked within about 30 minutes reuse the same conversation thread, so you\n    can ask naturally without repeating earlier context.\n    ",
+  "description": "Read-only Q&A fallback. Use a specific tool first; reach for this only when no other tool fits.\n\n    PREFER specific tools whenever the request maps to one:\n    - Listing/filtering: list_invoices, list_people, list_companies, list_proposals, list_payments, list_expenses, list_services, list_deals, list_prospects, get_pipeline_summary\n    - Lookup by id/number/name: view_invoice, view_person, view_company, view_proposal, view_deal, view_prospect\n    - Read-only summaries: network_summary, get_daily_brief, get_heartbeat_summary, get_financial_report\n    - Mutations: create_invoice, create_proposal, create_person, create_company, record_payment, send_invoice, create_deal, move_deal_stage, log_deal_activity, etc.\n    - Capability/help: what_every_does for \"what can Every do?\", get_home for onboarding/welcome.\n\n    USE THIS TOOL ONLY for analytical questions that span multiple data points and have no\n    direct tool \u2014 e.g. \"what's my revenue this quarter?\", \"which customers have the most\n    overdue invoices?\", \"summarize my pipeline this month\". It is read-only: writes,\n    drafts, sends, deletes, and external MCP actions are refused. For changes, use the\n    specific write tools (create_invoice, record_payment, send_invoice, create_deal,\n    move_deal_stage, log_deal_activity, etc.).\n\n    Simple questions answer in seconds on a warm conversation; complex analytical\n    questions can take a minute or more, so keep first questions focused. Follow-up\n    questions asked within about 30 minutes reuse the same conversation thread, so you\n    can ask naturally without repeating earlier context.\n    ",
   "inputSchema": {
    "properties": {
     "message": {

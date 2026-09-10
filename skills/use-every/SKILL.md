@@ -1,6 +1,6 @@
 ---
 name: use-every
-description: Drive the Every AI CLI (`every`) to manage the user's service business — invoices, clients, contacts, proposals, deals, pipeline, payments, services, custom fields, and scheduled tasks. Use when the user asks “who owes me money?”, wants a lead or deal follow-up, asks to look up, create, update, convert, or send a business record, or mentions their Every workspace.
+description: Drive the Every AI CLI (`every`) to manage the user's service business — invoices, People, Companies, proposals, deals, pipeline, payments, services, custom fields, and scheduled tasks. Use when the user asks “who owes me money?”, wants a lead or deal follow-up, asks to look up, create, update, convert, or send a business record, or mentions their Every workspace.
 ---
 
 # Use Every
@@ -13,7 +13,7 @@ For headless use, accept `EVERY_TOKEN` from the environment instead of browser l
 
 ## What Every Is
 
-Use Every as a service-business workspace for the sales pipeline, deals, contacts and clients, proposals, invoices, payments, and services. The authenticated CLI operates on one connected Every workspace at a time. If the user means a different business, tell them to switch accounts in Every.
+Use Every as a service-business workspace for the sales pipeline, deals, People and Companies, proposals, invoices, payments, and services. The authenticated CLI operates on one connected Every workspace at a time. If the user means a different business, tell them to switch accounts in Every.
 
 ## Required Workflow
 
@@ -71,7 +71,7 @@ Use `every whoami --json` to verify the authenticated user, org, environment, ba
 
 ### Deal activity auto-tracking is creation-only
 
-Creating a proposal or invoice automatically records activity on a matching deal when exactly one deal/client matches. After an Every creation command, never double-log that action:
+Creating a proposal or invoice automatically records activity on a matching deal when exactly one deal/party (Person or Company) matches. After an Every creation command, never double-log that action:
 
 ```bash
 every invoice create --client-id <client_id> --amount 100 --yes --json
@@ -85,7 +85,7 @@ every deal list --search "Acme" --json
 every tool call log_deal_activity --arg deal_id=<deal_id> --arg note="Call completed; client approved scope" --yes --json
 ```
 
-### Won deals require completed client promotion
+### Won deals require a linked Person or Company
 
 Pipeline stages are `lead`, `opportunity`, `won`, and `lost`:
 
@@ -93,7 +93,7 @@ Pipeline stages are `lead`, `opportunity`, `won`, and `lost`:
 every deal move <deal_id> won --yes --json
 ```
 
-Moving to `won` requires completed client promotion. No CLI or chat tool can set that promotion. If the command returns a client-resolution error, tell the user to finish converting the contact to a client in the Every app, then retry the same command.
+Moving to `won` requires the deal to already be linked to a Person or Company. If the command errors because no party is assigned, assign one first (e.g. via `create_deal`'s `party`, or by updating the deal's target in the Every app), then retry the same command.
 
 ### Invoice rates and tax
 
@@ -140,7 +140,7 @@ Calendar tools operate on the user's personal calendar. Confirm attendees and ti
 
 ### Custom fields are schema, not events
 
-`every tool call set_meta_fields ...` stores current state (e.g. a tracked boolean) on a contact, client, or deal; missing field definitions are created automatically, but check `every tool call list_meta_field_definitions --json` first and reuse an existing one when it fits. Something that *happened* (a call, visit, touchpoint) belongs in `log_deal_activity`, not a meta field. Tags are the `custom.tags` list field, not a separate feature.
+`every tool call set_meta_fields ...` stores current state (e.g. a tracked boolean) on a Person, Company, or deal; missing field definitions are created automatically, but check `every tool call list_meta_field_definitions --json` first and reuse an existing one when it fits. Something that *happened* (a call, visit, touchpoint) belongs in `log_deal_activity`, not a meta field. Tags are the `custom.tags` list field, not a separate feature.
 
 ### Scheduled tasks report in-app, never in this session
 
@@ -207,11 +207,11 @@ Intake a new lead:
 
 ```bash
 every contact list --search "person@example.com" --json
-every tool call create_contact --args contact.json --yes --json
+every tool call create_person --args person.json --yes --json
 every tool call create_deal --args deal.json --yes --json
 ```
 
-Search contacts first because email deduplication is real. Create only missing records, then progress the deal as the relationship develops.
+Search People first because email deduplication is real. Create only missing records, then progress the deal as the relationship develops.
 
 For a general activity snapshot, combine complete/paginated invoice reads with recent payments and expenses. Use the currency from `business_settings`; if any source is only a partial page, describe it as recent activity rather than a definitive cash position.
 

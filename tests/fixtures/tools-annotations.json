@@ -42,19 +42,37 @@
   "openWorld": false
  },
  {
-  "name": "list_clients",
+  "name": "list_meta_field_definitions",
   "readOnly": true,
   "destructive": false,
   "openWorld": false
  },
  {
-  "name": "view_client",
+  "name": "create_meta_field_definition",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "update_meta_field_definition",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "get_meta_fields",
   "readOnly": true,
   "destructive": false,
   "openWorld": false
  },
  {
-  "name": "list_contacts",
+  "name": "set_meta_fields",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "find_entities_by_meta_field",
   "readOnly": true,
   "destructive": false,
   "openWorld": false
@@ -73,6 +91,12 @@
  },
  {
   "name": "list_payments",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "view_expense",
   "readOnly": true,
   "destructive": false,
   "openWorld": false
@@ -121,42 +145,6 @@
  },
  {
   "name": "delete_invoice",
-  "readOnly": false,
-  "destructive": true,
-  "openWorld": false
- },
- {
-  "name": "create_client",
-  "readOnly": false,
-  "destructive": false,
-  "openWorld": false
- },
- {
-  "name": "update_client",
-  "readOnly": false,
-  "destructive": false,
-  "openWorld": false
- },
- {
-  "name": "create_contact",
-  "readOnly": false,
-  "destructive": false,
-  "openWorld": false
- },
- {
-  "name": "update_contact",
-  "readOnly": false,
-  "destructive": false,
-  "openWorld": false
- },
- {
-  "name": "link_contact_to_client",
-  "readOnly": false,
-  "destructive": false,
-  "openWorld": false
- },
- {
-  "name": "unlink_contact_from_client",
   "readOnly": false,
   "destructive": true,
   "openWorld": false
@@ -235,7 +223,7 @@
  },
  {
   "name": "generate_invoice_pdf",
-  "readOnly": false,
+  "readOnly": true,
   "destructive": false,
   "openWorld": false
  },
@@ -276,6 +264,18 @@
   "openWorld": false
  },
  {
+  "name": "create_delivery_deal",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "approve_pending_deal",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
   "name": "move_deal_stage",
   "readOnly": false,
   "destructive": false,
@@ -288,76 +288,34 @@
   "openWorld": false
  },
  {
-  "name": "send_invoice",
-  "readOnly": false,
-  "destructive": true,
-  "openWorld": true
- },
- {
-  "name": "ask_assistant",
-  "readOnly": true,
-  "destructive": false,
-  "openWorld": false
- },
- {
-  "name": "search_gmail_threads",
-  "readOnly": true,
-  "destructive": false,
-  "openWorld": false
- },
- {
-  "name": "get_gmail_thread",
-  "readOnly": true,
-  "destructive": false,
-  "openWorld": false
- },
- {
-  "name": "get_gmail_message",
-  "readOnly": true,
-  "destructive": false,
-  "openWorld": false
- },
- {
-  "name": "draft_email",
+  "name": "set_deal_target_value",
   "readOnly": false,
   "destructive": false,
   "openWorld": false
  },
  {
-  "name": "send_email",
+  "name": "set_deal_title",
   "readOnly": false,
-  "destructive": true,
-  "openWorld": true
- },
- {
-  "name": "list_calendar_events",
-  "readOnly": true,
   "destructive": false,
   "openWorld": false
  },
  {
-  "name": "check_calendar_availability",
-  "readOnly": true,
+  "name": "link_deal_item",
+  "readOnly": false,
   "destructive": false,
   "openWorld": false
  },
  {
-  "name": "create_calendar_event",
+  "name": "unlink_deal_item",
   "readOnly": false,
   "destructive": false,
-  "openWorld": true
+  "openWorld": false
  },
  {
-  "name": "reschedule_calendar_event",
-  "readOnly": false,
+  "name": "get_deal_burn",
+  "readOnly": true,
   "destructive": false,
-  "openWorld": true
- },
- {
-  "name": "cancel_calendar_event",
-  "readOnly": false,
-  "destructive": true,
-  "openWorld": true
+  "openWorld": false
  },
  {
   "name": "list_prospects",
@@ -396,73 +354,79 @@
   "openWorld": false
  },
  {
-  "name": "list_recurring_invoices",
+  "name": "list_calendar_events",
   "readOnly": true,
   "destructive": false,
   "openWorld": false
  },
  {
-  "name": "create_recurring_invoice",
-  "readOnly": false,
+  "name": "check_calendar_availability",
+  "readOnly": true,
   "destructive": false,
   "openWorld": false
  },
  {
-  "name": "update_recurring_invoice",
+  "name": "create_calendar_event",
   "readOnly": false,
   "destructive": false,
-  "openWorld": false
+  "openWorld": true
  },
  {
-  "name": "pause_recurring_invoice",
+  "name": "reschedule_calendar_event",
   "readOnly": false,
   "destructive": false,
-  "openWorld": false
+  "openWorld": true
  },
  {
-  "name": "resume_recurring_invoice",
-  "readOnly": false,
-  "destructive": false,
-  "openWorld": false
- },
- {
-  "name": "run_recurring_invoice_now",
+  "name": "cancel_calendar_event",
   "readOnly": false,
   "destructive": true,
   "openWorld": true
  },
  {
-  "name": "list_meta_field_definitions",
+  "name": "search_gmail_threads",
   "readOnly": true,
   "destructive": false,
   "openWorld": false
  },
  {
-  "name": "create_meta_field_definition",
-  "readOnly": false,
-  "destructive": false,
-  "openWorld": false
- },
- {
-  "name": "update_meta_field_definition",
-  "readOnly": false,
-  "destructive": false,
-  "openWorld": false
- },
- {
-  "name": "get_meta_fields",
+  "name": "get_gmail_thread",
   "readOnly": true,
   "destructive": false,
   "openWorld": false
  },
  {
-  "name": "set_meta_fields",
+  "name": "get_gmail_message",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "draft_email",
   "readOnly": false,
   "destructive": false,
   "openWorld": false
  },
  {
-  "name": "find_entities_by_meta_field",
+  "name": "send_email",
+  "readOnly": false,
+  "destructive": true,
+  "openWorld": true
+ },
+ {
+  "name": "send_invoice",
+  "readOnly": false,
+  "destructive": true,
+  "openWorld": true
+ },
+ {
+  "name": "ask_assistant",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "get_entity_counts",
   "readOnly": true,
   "destructive": false,
   "openWorld": false
@@ -498,15 +462,129 @@
   "openWorld": false
  },
  {
-  "name": "get_entity_counts",
+  "name": "preview_document_send",
   "readOnly": true,
   "destructive": false,
   "openWorld": false
  },
  {
-  "name": "approve_pending_deal",
+  "name": "list_people",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "list_companies",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "view_person",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "view_company",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "create_person",
   "readOnly": false,
   "destructive": false,
   "openWorld": false
+ },
+ {
+  "name": "update_person",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "create_company",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "update_company",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "end_affiliation",
+  "readOnly": false,
+  "destructive": true,
+  "openWorld": false
+ },
+ {
+  "name": "get_recipient_defaults",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "set_recipient_defaults",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "delete_company",
+  "readOnly": false,
+  "destructive": true,
+  "openWorld": false
+ },
+ {
+  "name": "preview_recurring_invoice_send",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "create_recurring_invoice",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": true
+ },
+ {
+  "name": "list_recurring_invoices",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "view_recurring_invoice",
+  "readOnly": true,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "update_recurring_invoice",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": true
+ },
+ {
+  "name": "pause_recurring_invoice",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "resume_recurring_invoice",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": true
+ },
+ {
+  "name": "run_recurring_invoice_now",
+  "readOnly": false,
+  "destructive": true,
+  "openWorld": true
  }
 ]

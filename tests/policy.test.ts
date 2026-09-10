@@ -24,7 +24,7 @@ function isOverridden(name: string): boolean {
     name === 'record_payment' ||
     name === 'run_recurring_invoice_now' ||
     name === 'approve_pending_deal' ||
-    name === 'create_client_deal' ||
+    name === 'create_delivery_deal' ||
     name === 'set_deal_title' ||
     name === 'link_deal_item' ||
     name === 'unlink_deal_item' ||
@@ -40,7 +40,7 @@ function tool(name: string): FixtureTool {
 
 describe('policy classification', () => {
   it('covers the full snapshotted live tool registry', () => {
-    expect(tools).toHaveLength(85);
+    expect(tools).toHaveLength(98);
   });
 
   it('classifies destructive name and financial-record overrides as destructive', () => {
@@ -163,7 +163,7 @@ describe('policy classification', () => {
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     };
 
-    for (const name of ['create_client_deal', 'set_deal_title', 'link_deal_item']) {
+    for (const name of ['create_delivery_deal', 'set_deal_title', 'link_deal_item']) {
       expect(classify({ name, ...serverAnnotations })).toMatchObject({
         level: 'write',
         source: 'override',
@@ -172,7 +172,7 @@ describe('policy classification', () => {
     }
 
     // Removing an invoice/proposal link is permanent for the automatic matcher, so it
-    // sits at the same tier as unlink_contact_from_client even though the server's
+    // sits at the same tier as end_affiliation even though the server's
     // destructiveHint says otherwise.
     expect(classify({ name: 'unlink_deal_item', ...serverAnnotations })).toMatchObject({
       level: 'destructive',
