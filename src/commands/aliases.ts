@@ -208,8 +208,15 @@ function collectStructuredCandidates(value: unknown, seen = new Set<unknown>()):
 
   const record = value as Record<string, unknown>;
   const direct = candidateFromObject(record);
-  const nested = Object.values(record).flatMap((entry) => collectStructuredCandidates(entry, seen));
-  return direct ? [direct, ...nested] : nested;
+  // Once a record itself resolves to a candidate, its own nested fields describe
+  // THAT candidate (e.g. a Person/Company's `affiliations[].person`/`.company`
+  // sub-objects, which carry their own id+name) rather than sibling matches. Real
+  // list_people/list_companies results nest exactly this shape, so descending
+  // into an already-matched record's children turned every single real match into
+  // a false "multiple candidates" ambiguity — only keep walking children when the
+  // current object was NOT itself a match.
+  if (direct) return [direct];
+  return Object.values(record).flatMap((entry) => collectStructuredCandidates(entry, seen));
 }
 
 function textFromContent(content: unknown): string {

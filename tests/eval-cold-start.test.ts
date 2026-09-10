@@ -430,6 +430,32 @@ describe('invoice client resolution parser', () => {
       }],
     })).toEqual([{ client_id: 'client_valid', name: 'Valid Client' }]);
   });
+
+  it('does not surface a matched record\'s own nested affiliation as a second candidate', () => {
+    // Real list_people/list_companies responses nest an `affiliations[].person`/
+    // `.company` sub-object that itself carries its own id+name (staging
+    // verified 2026-09-10: a single real person match was reported as
+    // "Multiple persons matching" because the company from their own
+    // affiliation record was picked up as a spurious sibling candidate).
+    expect(parseClientCandidates({
+      structured_content: {
+        items: [
+          {
+            id: 'person_1',
+            name: 'Primary Contact',
+            affiliations: [
+              {
+                person: { id: 'person_1', name: 'Primary Contact' },
+                company: { id: 'company_1', name: 'Ethan Hughes' },
+              },
+            ],
+          },
+        ],
+        total: 1,
+        has_more: false,
+      },
+    })).toEqual([{ client_id: 'person_1', name: 'Primary Contact' }]);
+  });
 });
 
 describe('invoice create command guards', () => {
