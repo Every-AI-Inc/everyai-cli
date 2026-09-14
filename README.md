@@ -47,8 +47,9 @@ The CLI talks to the same Every MCP server (`admin-mcp.every.ai`) and inherits i
 
 ```bash
 # Auth
-every login [--create-account] [--staging]  # browser OAuth; keychain storage; refresh handled
-every logout | whoami | auth status | org
+every login [--create-account] [--org <name|slug|id>] [--staging]  # browser OAuth; keychain storage; refresh handled
+every logout | whoami | auth status
+every org [switch --org <name|slug|id>]
 
 # Discovery
 every docs
@@ -74,6 +75,10 @@ every skills install codex     # → .agents/skills/use-every/
 ## Login and account creation
 
 Run `every login` to choose between logging in and creating an account, or use `every login --create-account` to open Every's signup page directly. After you create your account and workspace, return to the terminal and press Enter; the CLI connects through the normal browser OAuth flow.
+
+## Switching workspaces
+
+Run `every org switch` and pick the workspace in the browser consent page's selector. The token binds one workspace per environment; add `--staging` to switch staging. Use `every org switch --org "<name|slug|id>"` (or `every login --org "<name|slug|id>"`) to verify the selection after login. `--org` does not preselect a workspace; a mismatch keeps your previous credentials. Names can be ambiguous, so use the workspace id when needed. Verify the result with `every whoami --json`. Unset `EVERY_TOKEN` before switching because it overrides stored credentials.
 
 ## Output contract
 

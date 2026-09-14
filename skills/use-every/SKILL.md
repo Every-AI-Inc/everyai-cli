@@ -13,7 +13,7 @@ For headless use, accept `EVERY_TOKEN` from the environment instead of browser l
 
 ## What Every Is
 
-Use Every as a service-business workspace for the sales pipeline, deals, People and Companies, proposals, invoices, payments, and services. The authenticated CLI operates on one connected Every workspace at a time. If the user means a different business, tell them to switch accounts in Every.
+Use Every as a service-business workspace for the sales pipeline, deals, People and Companies, proposals, invoices, payments, and services. The authenticated CLI operates on one connected Every workspace at a time. The token binds one workspace per environment; follow the workspace switching rule below when the user means a different business.
 
 ## Required Workflow
 
@@ -68,6 +68,10 @@ Use `every whoami --json` to verify the authenticated user, org, environment, ba
 `ask_assistant` is a server-enforced read-only analytical fallback; prefer deterministic tools for actions.
 
 ## Domain Rules
+
+### Verify the workspace before acting
+
+Never assume the bound workspace. When the user names a different workspace, run `every org switch --org "<name>" --json`, then re-verify with `every whoami --json` before continuing. The browser consent page is the picker; `--org` verifies the selection after login. A token binds one workspace per environment. Use the workspace id when names are ambiguous. If `EVERY_TOKEN` is set, ask the user to unset it before switching.
 
 ### Deal activity auto-tracking is creation-only
 
