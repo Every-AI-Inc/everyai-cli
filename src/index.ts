@@ -8,6 +8,7 @@ import {
   loginCommand,
   logoutCommand,
   orgCommand,
+  orgSwitchCommand,
   whoamiCommand,
 } from './commands/auth.js';
 import { policyExplainCommand } from './commands/policy.js';
@@ -89,13 +90,15 @@ withGlobalOptions(
   program
     .command('login')
     .description('Log in (or create an account) with browser-based OAuth and store tokens locally')
-    .option('--create-account', 'create a new Every account, then connect the CLI'),
+    .option('--create-account', 'create a new Every account, then connect the CLI')
+    .option('--org <id|slug|name>', 'verify the workspace selected during login'),
 ).action(async (_options: unknown, command: Command) => {
   const opts = command.optsWithGlobals();
   await loginCommand({
     json: opts.json,
     staging: opts.staging,
     createAccount: opts.createAccount,
+    org: opts.org,
   });
 });
 
@@ -128,15 +131,25 @@ withGlobalOptions(
   await authStatusCommand({ json: opts.json, staging: opts.staging });
 });
 
-withGlobalOptions(
+const org = withGlobalOptions(
   program
     .command('org')
+    .allowExcessArguments(false)
     .description(
-      'Show org claims from the current token; multi-org selection lands in a later phase',
+      'Show or switch the workspace bound to the current token',
     ),
 ).action(async (_options: unknown, command: Command) => {
   const opts = command.optsWithGlobals();
   await orgCommand({ json: opts.json, staging: opts.staging });
+});
+
+withGlobalOptions(
+  org.command('switch')
+    .description('Switch workspace using the browser consent selector')
+    .option('--org <ref>', 'verify the selected workspace by id, slug, or name'),
+).action(async (_options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await orgSwitchCommand({ json: opts.json, staging: opts.staging, org: opts.org });
 });
 
 const toolsCommand = withGlobalOptions(

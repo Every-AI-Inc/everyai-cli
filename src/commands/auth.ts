@@ -20,8 +20,16 @@ import {
   getAuthStatus,
   getToken,
   resolveAuthTarget,
+  TokenStore,
 } from '../lib/auth/tokens.js';
-import { fetchUserInfo, UserInfo } from '../lib/auth/userinfo.js';
+import {
+  fetchUserInfo,
+  invalidateUserInfoCache,
+  readCachedUserInfo,
+  requestUserInfo,
+  UserInfo,
+  writeUserInfoCache,
+} from '../lib/auth/userinfo.js';
 import {
   HintsFile,
   maybeShowSkillHint,
@@ -180,6 +188,7 @@ export interface AuthCommandOptions {
   staging?: boolean;
   createAccount?: boolean;
   skipMenu?: boolean;
+  org?: string;
 }
 
 export interface CreateAccountFlowOptions extends AuthCommandOptions {
@@ -190,7 +199,11 @@ export interface CreateAccountFlowOptions extends AuthCommandOptions {
   runLogin?: () => Promise<void>;
 }
 
-interface LoginResult {
+export interface LoginResult {
+  user_id: string | null;
+  org_id: string | null;
+  org_slug: string | null;
+  org_name: string | null;
   logged_in: boolean;
   issuer: string | null;
   subject: string | null;
@@ -243,7 +256,7 @@ function identityFromToken(token: string): Pick<LoginResult, 'subject' | 'email'
 function loginHuman(data: LoginResult): string {
   if (data.every_token) return 'EVERY_TOKEN is set; login is unnecessary.';
   const identity = data.email ?? data.subject;
-  return identity ? `Logged in as ${identity}` : 'Logged in';
+  return `Logged in as ${identity ?? 'unknown'} · workspace ${formatOrg(data.org_name, data.org_id)}\nSwitch workspace: every org switch`;
 }
 
 function loginNextSteps(): string {
@@ -299,6 +312,7 @@ function orgHuman(org: OrgResult): string {
     `Org: ${formatOrg(org.org_name, org.org_id)}`,
     `Slug: ${org.org_slug ?? 'none'}`,
     'Note: the server scopes writes to this org.',
+    'Switch: every org switch [--org <name|slug|id>]',
   ];
 
   return lines.join('\n');
@@ -331,51 +345,165 @@ async function verifyMcpLiveness(
   };
 }
 
-async function runBrowserLogin(
+function validateOrgTarget(target: string): void {
+  if (!target.trim()) {
+    throw new CliError('--org must not be empty or whitespace-only', ExitCode.USAGE, 'usage');
+  }
+}
+
+/** IDs are exact; slugs ignore case; display names also trim and normalize Unicode. */
+export function matchesOrg(target: string, info: UserInfo): boolean {
+  validateOrgTarget(target);
+  const name = (value: string) => value.trim().normalize('NFC').toLowerCase();
+  return target === info.org_id ||
+    (info.org_slug !== null && target.toLowerCase() === info.org_slug.toLowerCase()) ||
+    (info.org_name !== null && name(target) === name(info.org_name));
+}
+
+function validateBrowserLogin(opts: AuthCommandOptions, switching = false): void {
+  if (opts.org !== undefined) validateOrgTarget(opts.org);
+  if (process.env.EVERY_TOKEN && (switching || opts.org !== undefined)) {
+    throw new CliError(
+      'Workspace switching requires stored credentials; unset EVERY_TOKEN and try again.',
+      ExitCode.USAGE,
+      'usage',
+    );
+  }
+}
+
+export interface BrowserLoginDependencies {
+  input?: TtyReadable;
+  output?: TtyWritable;
+  errorOutput?: Writable;
+  loginFlow?: typeof loginFlow;
+  store?: TokenStore;
+}
+
+/** Exchange, verify, then commit. A failed assertion never mutates stored auth or identity. */
+export async function completeBrowserLogin(
   opts: AuthCommandOptions,
-  streams: {
-    input: TtyReadable;
-    output: TtyWritable;
-    errorOutput: Writable;
-  } = {
-    input: process.stdin,
-    output: process.stdout,
-    errorOutput: process.stderr,
-  },
-): Promise<void> {
+  deps: BrowserLoginDependencies = {},
+  switching = false,
+): Promise<LoginResult> {
+  validateBrowserLogin(opts, switching);
+  const errorOutput = deps.errorOutput ?? process.stderr;
   const baseUrl = resolveBaseUrl({ staging: opts.staging });
   const { environmentKey } = resolveAuthTarget({ baseUrl });
-  const tokenSet = await loginFlow({
+  errorOutput.write(opts.org === undefined
+    ? "Pick the workspace in the consent page's selector.\n"
+    : `In the consent page's selector, pick "${opts.org}".\n`);
+  const tokenSet = await (deps.loginFlow ?? loginFlow)({
     baseUrl,
     onAuthorizationUrl(url) {
-      streams.errorOutput.write(`Open this URL to log in:\n${url}\n`);
+      errorOutput.write(`Open this URL to log in:\n${url}\n`);
     },
   });
 
-  const store = await createTokenStore();
-  await store.set(environmentKey, tokenSet);
+  let userinfo: UserInfo | undefined;
+  try {
+    userinfo = await requestUserInfo({ baseUrl, accessToken: tokenSet.access_token });
+  } catch {
+    if (switching || opts.org !== undefined) {
+      throw new CliError(
+        'Could not verify the workspace because userinfo is unreachable. Previous credentials kept; try again.',
+        ExitCode.NETWORK,
+        'network',
+      );
+    }
+  }
+  if (opts.org !== undefined && userinfo && !matchesOrg(opts.org, userinfo)) {
+    throw new CliError(
+      `Token is bound to workspace ${formatOrg(userinfo.org_name, userinfo.org_id)}, but requested "${opts.org}". ` +
+      `Retry: every org switch --org "${opts.org}" and pick that workspace in the consent page. ` +
+      'Use the workspace id as the unambiguous form.',
+      ExitCode.GENERIC,
+      'org_mismatch',
+    );
+  }
+
+  const store = deps.store ?? await createTokenStore();
+  const previous = await store.get(environmentKey);
+  try {
+    await store.set(environmentKey, tokenSet);
+  } catch (err) {
+    try {
+      if (previous) await store.set(environmentKey, previous);
+      else await store.delete(environmentKey);
+    } catch {
+      errorOutput.write('Warning: could not restore previous credentials after a storage failure.\n');
+    }
+    throw err;
+  }
+
+  if (userinfo) {
+    try {
+      await writeUserInfoCache(baseUrl, userinfo);
+    } catch {
+      // A failed write may have left the old identity behind. Remove it if possible.
+      await invalidateUserInfoCache(baseUrl).catch(() => undefined);
+      errorOutput.write('Warning: logged in, but could not cache the current identity.\n');
+    }
+  } else {
+    await invalidateUserInfoCache(baseUrl).catch(() => {
+      errorOutput.write('Warning: could not invalidate the previous identity cache.\n');
+    });
+    errorOutput.write('Warning: logged in, but userinfo is unreachable; workspace identity is unknown.\n');
+  }
 
   const identity = identityFromToken(tokenSet.access_token);
-  const data: LoginResult = {
+  return {
     logged_in: true,
     issuer: tokenSet.issuer,
-    subject: identity.subject,
-    email: identity.email,
+    subject: userinfo?.user_id ?? identity.subject,
+    email: userinfo?.email ?? identity.email,
     storage_backend: store.backend,
     every_token: false,
+    user_id: userinfo?.user_id ?? null,
+    org_id: userinfo?.org_id ?? null,
+    org_slug: userinfo?.org_slug ?? null,
+    org_name: userinfo?.org_name ?? null,
   };
-  emitLogin(data, opts, streams.output, streams.errorOutput);
-  await maybeOfferSkillAfterLogin({
-    json: opts.json,
-    input: streams.input,
-    output: streams.output,
-    errorOutput: streams.errorOutput,
-  });
+}
+
+export async function runBrowserLogin(
+  opts: AuthCommandOptions,
+  deps: BrowserLoginDependencies = {},
+): Promise<void> {
+  const data = await completeBrowserLogin(opts, deps);
+  emitLogin(data, opts, deps.output, deps.errorOutput);
+  await maybeOfferSkillAfterLogin({ json: opts.json, ...deps });
+}
+
+export async function orgSwitchCommand(
+  opts: AuthCommandOptions = {},
+  deps: BrowserLoginDependencies = {},
+): Promise<void> {
+  validateBrowserLogin(opts, true);
+  if (!(deps.output ?? process.stdout).isTTY) {
+    throw new CliError('org switch requires a browser and an interactive terminal', ExitCode.AUTH, 'auth');
+  }
+  const baseUrl = resolveBaseUrl({ staging: opts.staging });
+  const previous = await readCachedUserInfo(baseUrl, { allowStale: true }).catch(() => undefined);
+  const login = await completeBrowserLogin(opts, deps, true);
+  const data = {
+    switched: true,
+    org_id: login.org_id,
+    org_slug: login.org_slug,
+    org_name: login.org_name,
+    previous_org_id: previous?.org_id ?? null,
+    environment: environmentNameForBaseUrl(baseUrl),
+  };
+  if (opts.json) emit(data, { json: true, staging: opts.staging });
+  else (deps.output ?? process.stdout).write(
+    `Switched to ${formatOrg(data.org_name, data.org_id)} · ${login.email ?? 'unknown'}\n`,
+  );
+  await maybeOfferSkillAfterLogin({ json: opts.json, ...deps });
 }
 
 export async function createAccountFlow(
   opts: CreateAccountFlowOptions = {},
 ): Promise<void> {
+  validateBrowserLogin(opts);
   const input = opts.input ?? process.stdin;
   const output = opts.output ?? process.stdout;
   const errorOutput = opts.errorOutput ?? process.stderr;
@@ -424,6 +552,7 @@ async function promptForLoggedOutAction(): Promise<'login' | 'createAccount'> {
 }
 
 export async function loginCommand(opts: AuthCommandOptions = {}): Promise<void> {
+  validateBrowserLogin(opts);
   if (process.env.EVERY_TOKEN) {
     const identity = identityFromToken(process.env.EVERY_TOKEN);
     const data: LoginResult = {
@@ -433,6 +562,10 @@ export async function loginCommand(opts: AuthCommandOptions = {}): Promise<void>
       email: identity.email,
       storage_backend: null,
       every_token: true,
+      user_id: null,
+      org_id: null,
+      org_slug: null,
+      org_name: null,
     };
     emitLogin(data, opts);
     return;

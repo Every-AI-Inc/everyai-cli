@@ -28,6 +28,7 @@ export interface LoginFlowOptions {
   openBrowser?: (url: string) => void | Promise<void>;
   onAuthorizationUrl?: (url: string) => void;
   now?: () => number;
+  createCallbackServer?: typeof createLoopbackCallbackServer;
 }
 
 export interface TokenExchangeOptions {
@@ -205,7 +206,7 @@ export async function loginFlow(opts: LoginFlowOptions): Promise<StoredTokenSet>
   const startedAt = Date.now();
   const state = createState();
   const pkce = createPkcePair();
-  const loopback = await createLoopbackCallbackServer(state);
+  const loopback = await (opts.createCallbackServer ?? createLoopbackCallbackServer)(state);
 
   const timeout = new Promise<never>((_, reject) => {
     setTimeout(() => {

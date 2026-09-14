@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, stat, writeFile, chmod } from 'node:fs/promises';
+import { mkdir, readFile, rename, stat, writeFile, chmod, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { getConfigDir } from '../config.js';
 import { CliError } from '../errors.js';
@@ -111,7 +111,7 @@ export async function readCachedUserInfo(
   return parsed.userinfo;
 }
 
-async function writeUserInfoCache(baseUrl: string, userinfo: UserInfo): Promise<void> {
+export async function writeUserInfoCache(baseUrl: string, userinfo: UserInfo): Promise<void> {
   const filePath = userInfoCacheFilePath(baseUrl);
   await mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
   const tempPath = `${filePath}.${process.pid}.tmp`;
@@ -123,6 +123,10 @@ async function writeUserInfoCache(baseUrl: string, userinfo: UserInfo): Promise<
   await chmod(tempPath, 0o600);
   await rename(tempPath, filePath);
   await chmod(filePath, 0o600);
+}
+
+export async function invalidateUserInfoCache(baseUrl: string): Promise<void> {
+  await rm(userInfoCacheFilePath(baseUrl), { force: true });
 }
 
 export async function userInfoCacheFileMode(baseUrl: string): Promise<number | undefined> {
@@ -163,6 +167,16 @@ export async function fetchUserInfo(opts: FetchUserInfoOptions = {}): Promise<Us
     if (cached) return cached;
   }
 
+  const userinfo = await requestUserInfo({ baseUrl, accessToken: token });
+  await writeUserInfoCache(baseUrl, userinfo);
+  return userinfo;
+}
+
+/** Verify a candidate credential without reading or changing stored auth/identity. */
+export async function requestUserInfo({ baseUrl, accessToken }: {
+  baseUrl: string;
+  accessToken: string;
+}): Promise<UserInfo> {
   const discovery = await discoverOAuth(baseUrl);
   const openid = await fetchOpenIdConfiguration(discovery.authServer.issuer);
 
@@ -173,7 +187,7 @@ export async function fetchUserInfo(opts: FetchUserInfoOptions = {}): Promise<Us
       {
         headers: {
           accept: 'application/json',
-          authorization: `Bearer ${token}`,
+          authorization: `Bearer ${accessToken}`,
         },
       },
       USERINFO_TIMEOUT_MS,
@@ -192,7 +206,5 @@ export async function fetchUserInfo(opts: FetchUserInfoOptions = {}): Promise<Us
     throw err;
   }
 
-  const userinfo = normalizeUserInfo(raw);
-  await writeUserInfoCache(baseUrl, userinfo);
-  return userinfo;
+  return normalizeUserInfo(raw);
 }
