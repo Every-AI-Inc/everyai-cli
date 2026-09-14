@@ -358,6 +358,41 @@ describe('CLI contract', () => {
     }
   });
 
+  it.each([
+    ['org', 'switch'],
+    ['org', 'switch', '--org', 'Acme'],
+    ['login', '--org', 'Acme'],
+  ])('rejects EVERY_TOKEN for workspace selection: %s', async (...args) => {
+    const result = await runCli([...args, '--json'], { EVERY_TOKEN: 'override' });
+    expect(result.code).toBe(2);
+    expect(result.stderr).toBe('');
+    expect(parseJsonStdout(result.stdout)).toMatchObject({
+      ok: false, error: { code: 'usage', message: expect.stringContaining('unset EVERY_TOKEN') },
+    });
+  });
+
+  it('keeps plain headless login with EVERY_TOKEN', async () => {
+    const result = await runCli(['login', '--json'], { EVERY_TOKEN: 'override' });
+    expect(result.code).toBe(0);
+    expect(parseJsonStdout(result.stdout)).toMatchObject({
+      ok: true, data: { logged_in: true, every_token: true },
+    });
+  });
+
+  it.each(['', '   '])('rejects an empty org assertion before requiring a browser: %j', async (org) => {
+    const result = await runCli(['login', '--org', org, '--json'], { EVERY_TOKEN: '' });
+    expect(result.code).toBe(2);
+    expect(result.stderr).toBe('');
+    expect(parseJsonStdout(result.stdout)).toMatchObject({ ok: false, error: { code: 'usage' } });
+  });
+
+  it('rejects org swtich as usage instead of showing the current org', async () => {
+    const result = await runCli(['org', 'swtich', '--json']);
+    expect(result.code).toBe(2);
+    expect(result.stderr).toBe('');
+    expect(parseJsonStdout(result.stdout)).toMatchObject({ ok: false, error: { code: 'usage' } });
+  });
+
   it('whoami reports userinfo identity, org, environment, and tool count', async () => {
     const server = await createMockMcpServer();
     const configDir = await tempConfig();
@@ -398,9 +433,10 @@ describe('CLI contract', () => {
 
       expect(result.code).toBe(0);
       expect(result.stderr).toBe('');
-      expect(parseJsonStdout(result.stdout)).toMatchObject({
+      expect(parseJsonStdout(result.stdout)).toEqual({
         ok: true,
         env: 'custom',
+        schema_version: 1,
         data: {
           org_id: 'org_123',
           org_slug: 'acme',

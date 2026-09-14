@@ -3,8 +3,8 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const enabled = process.env.EVERYAI_MOCK_MCP === '1';
-const baseUrl = process.env.EVERY_MCP_URL ?? 'https://mock-mcp.everyai.test';
-const stateFile = process.env.EVERYAI_MOCK_MCP_STATE;
+let baseUrl = process.env.EVERY_MCP_URL ?? 'https://mock-mcp.everyai.test';
+let stateFile = process.env.EVERYAI_MOCK_MCP_STATE;
 const originalFetch = globalThis.fetch;
 
 const fixturePath = path.join(
@@ -116,18 +116,21 @@ function confirmationsMatch(provided, expected) {
   return normalize(provided) === normalize(expected);
 }
 
+const defaultUserInfo = {
+  user_id: 'user_123', sub: 'user_123', email: 'person@example.com',
+  name: 'Person Example', org_id: 'org_123', org_slug: 'acme', org_name: 'Acme Co',
+};
+
 function readState() {
-  if (!stateFile) return { listCalls: 0, toolCalls: [], openidCalls: 0, userinfoCalls: 0 };
+  const defaults = {
+    listCalls: 0, toolCalls: [], openidCalls: 0, userinfoCalls: 0,
+    authorizationRequests: [], networkFailures: [],
+    tokenUserInfo: { 'test-token': defaultUserInfo, 'exchanged-token': defaultUserInfo },
+  };
   try {
-    return {
-      listCalls: 0,
-      toolCalls: [],
-      openidCalls: 0,
-      userinfoCalls: 0,
-      ...JSON.parse(readFileSync(stateFile, 'utf8')),
-    };
+    return { ...defaults, ...JSON.parse(readFileSync(stateFile, 'utf8')) };
   } catch {
-    return { listCalls: 0, toolCalls: [], openidCalls: 0, userinfoCalls: 0 };
+    return defaults;
   }
 }
 
@@ -171,7 +174,10 @@ function companiesMarkdown(companies) {
     .join('\n');
 }
 
-if (enabled && stateFile) {
+export function installMockMcpFetch(mockBaseUrl, mockStateFile, visitCallback = originalFetch) {
+  baseUrl = mockBaseUrl;
+  stateFile = mockStateFile;
+  const previousFetch = globalThis.fetch;
   const targetOrigin = new URL(baseUrl).origin;
 
   globalThis.fetch = async (input, init = {}) => {
@@ -181,6 +187,25 @@ if (enabled && stateFile) {
 
     if (url.origin !== targetOrigin) return originalFetch(input, init);
     const method = init.method ?? 'GET';
+    if (readState().networkFailures.includes(url.pathname)) {
+      throw new TypeError('mock network failure');
+    }
+
+    if (method === 'GET' && url.pathname === '/authorize') {
+      const state = readState();
+      state.authorizationRequests.push(url.toString());
+      writeState(state);
+      const callback = new URL(url.searchParams.get('redirect_uri'));
+      callback.searchParams.set('state', url.searchParams.get('state'));
+      callback.searchParams.set('code', 'mock-code');
+      return visitCallback(callback);
+    }
+    if (method === 'POST' && url.pathname === '/oauth/register') {
+      return response({ client_id: 'mock-client', redirect_uris: JSON.parse(init.body).redirect_uris });
+    }
+    if (method === 'POST' && url.pathname === '/oauth/token') {
+      return response({ access_token: 'exchanged-token', refresh_token: 'mock-refresh', expires_in: 3600 });
+    }
 
     if (method === 'GET' && url.pathname === '/.well-known/oauth-protected-resource') {
       return response({ authorization_servers: [baseUrl] });
@@ -211,24 +236,8 @@ if (enabled && stateFile) {
       if (status !== 200) return response({ error: 'userinfo failed' }, status);
 
       const headers = new Headers(init.headers);
-      if (headers.get('authorization') !== 'Bearer test-token') {
-        return response({ error: 'unauthorized' }, 401);
-      }
-
-      return response({
-        user_id: 'user_123',
-        sub: 'user_123',
-        email: 'person@example.com',
-        email_verified: true,
-        name: 'Person Example',
-        given_name: 'Person',
-        family_name: 'Example',
-        org_id: 'org_123',
-        org_slug: 'acme',
-        org_name: 'Acme Co',
-        picture: null,
-        instance_id: 'inst_123',
-      });
+      const info = state.tokenUserInfo[headers.get('authorization')?.replace(/^Bearer /, '')];
+      return info ? response(info) : response({ error: 'unauthorized' }, 401);
     }
 
     if ((init.method ?? 'GET') !== 'POST' || url.pathname !== '/') {
@@ -236,7 +245,7 @@ if (enabled && stateFile) {
     }
 
     const headers = new Headers(init.headers);
-    if (headers.get('authorization') !== 'Bearer test-token') {
+    if (!readState().tokenUserInfo[headers.get('authorization')?.replace(/^Bearer /, '')]) {
       return response({ error: 'unauthorized' }, 401);
     }
 
@@ -391,4 +400,7 @@ if (enabled && stateFile) {
       error: { code: -32601, message: 'Method not found' },
     });
   };
+  return () => { globalThis.fetch = previousFetch; };
 }
+
+if (enabled && stateFile) installMockMcpFetch(baseUrl, stateFile);

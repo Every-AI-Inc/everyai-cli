@@ -20,6 +20,7 @@ import {
   fetchUserInfo,
   userInfoCacheFileMode,
 } from '../src/lib/auth/userinfo';
+import { mockOAuthCallback } from './helpers/mock-oauth-callback';
 import { ExitCode } from '../src/lib/exit-codes';
 
 const ORIGINAL_ENV = {
@@ -79,6 +80,7 @@ async function createMockOAuthServer(
   const openidRequests: string[] = [];
   const userinfoRequests: string[] = [];
   let baseUrl = '';
+  const acceptedTokens = new Set(['live-token']);
 
   function handleMockRequest(
     method: string,
@@ -119,7 +121,7 @@ async function createMockOAuthServer(
       if (opts.userinfoStatus && opts.userinfoStatus !== 200) {
         return { status: opts.userinfoStatus, body: { error: 'userinfo failed' } };
       }
-      if (headers.authorization !== 'Bearer live-token') {
+      if (!acceptedTokens.has(headers.authorization?.replace(/^Bearer /, '') ?? '')) {
         return { status: 401, body: { error: 'unauthorized' } };
       }
 
@@ -175,15 +177,14 @@ async function createMockOAuthServer(
         };
       }
 
+      const accessToken = jwt({
+        sub: 'user_123', email: 'person@example.com', org_id: 'org_123', exp: 1_700_003_600,
+      });
+      acceptedTokens.add(accessToken);
       return {
         status: 200,
         body: {
-          access_token: jwt({
-            sub: 'user_123',
-            email: 'person@example.com',
-            org_id: 'org_123',
-            exp: 1_700_003_600,
-          }),
+          access_token: accessToken,
           refresh_token: 'refresh-original',
           expires_in: 3_600,
           scope: 'openid profile email offline_access user:org:read',
@@ -192,7 +193,7 @@ async function createMockOAuthServer(
     }
 
     if (method === 'POST' && pathname === '/') {
-      if (headers.authorization !== 'Bearer live-token') {
+      if (!acceptedTokens.has(headers.authorization?.replace(/^Bearer /, '') ?? '')) {
         return { status: 401, body: { error: 'unauthorized' } };
       }
 
@@ -389,8 +390,10 @@ describe('authorization-response issuer validation (RFC 9207)', () => {
     process.env.EVERY_CONFIG_DIR = dir;
 
     try {
+      const transport = mockOAuthCallback();
       return await loginFlow({
         baseUrl: server.baseUrl,
+        createCallbackServer: transport.createServer,
         openBrowser: async (authorizationUrl) => {
           const authorize = new URL(authorizationUrl);
           const callback = new URL(authorize.searchParams.get('redirect_uri') ?? '');
@@ -398,7 +401,7 @@ describe('authorization-response issuer validation (RFC 9207)', () => {
           callback.searchParams.set('state', authorize.searchParams.get('state') ?? '');
           const issValue = iss(server.baseUrl);
           if (issValue !== undefined) callback.searchParams.set('iss', issValue);
-          await fetch(callback.toString());
+          await transport.visit(callback);
         },
       });
     } finally {
