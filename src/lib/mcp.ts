@@ -4,6 +4,7 @@ import { getConfigDir } from './config.js';
 import { CliError } from './errors.js';
 import { ExitCode } from './exit-codes.js';
 import { environmentKeyForBaseUrl } from './auth/tokens.js';
+import { apiKeyRejectedMessage, authErrorReasonFromBody, isApiKeyToken } from './auth/api-key.js';
 
 const DEFAULT_MCP_TIMEOUT_MS = 30_000;
 const DEFAULT_TOOL_TIMEOUT_MS = 120_000;
@@ -151,6 +152,34 @@ function parseJsonRpcResponse<T>(raw: string, params: unknown): T {
   return body.result as T;
 }
 
+/**
+ * Explain a 401 in terms of the credential that was actually rejected.
+ *
+ * An OAuth session and an org API key fail for disjoint reasons and have
+ * disjoint fixes, and the server collapses both into one generic body — so the
+ * client is the only place that can name the right one. `every login` is the
+ * fix for a stale OAuth session and is actively misleading for a key, whose
+ * whole purpose is that nobody is signed in.
+ */
+async function unauthorizedError(
+  response: Response,
+  baseUrl: string,
+  token: string,
+): Promise<CliError> {
+  if (!isApiKeyToken(token)) {
+    return new CliError('Not logged in. Run \'every login\'.', ExitCode.AUTH, 'auth');
+  }
+
+  let reason: string | undefined;
+  try {
+    reason = authErrorReasonFromBody(await response.text());
+  } catch {
+    // A body that cannot be read is not a reason to lose the diagnosis.
+  }
+
+  return new CliError(apiKeyRejectedMessage(baseUrl, reason), ExitCode.AUTH, 'auth');
+}
+
 export async function mcpCall<T = unknown>(
   baseUrl: string,
   token: string,
@@ -187,7 +216,7 @@ export async function mcpCall<T = unknown>(
   }
 
   if (response.status === 401) {
-    throw new CliError('Not logged in. Run \'every login\'.', ExitCode.AUTH, 'auth');
+    throw await unauthorizedError(response, baseUrl, token);
   }
 
   if (!response.ok) {
