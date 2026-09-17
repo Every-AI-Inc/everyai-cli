@@ -4,6 +4,7 @@ import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import type { Readable, Writable } from 'node:stream';
 import {
+  apiKeysUrlForBaseUrl,
   environmentNameForBaseUrl,
   resolveBaseUrl,
   signupUrlForBaseUrl,
@@ -12,6 +13,7 @@ import { CliError } from '../lib/errors.js';
 import { ExitCode } from '../lib/exit-codes.js';
 import { mcpCall } from '../lib/mcp.js';
 import { loginFlow, openBrowser as openBrowserDefault } from '../lib/auth/flow.js';
+import { activeCredentialIsApiKey, AuthMethod, isApiKeyToken } from '../lib/auth/api-key.js';
 import { decodeJwtClaims } from '../lib/auth/jwt.js';
 import {
   AuthStatus,
@@ -219,6 +221,7 @@ interface LogoutResult {
 
 interface WhoamiResult {
   authenticated: true;
+  auth_method: AuthMethod;
   user_id: string | null;
   subject: string | null;
   email: string | null;
@@ -232,6 +235,7 @@ interface WhoamiResult {
 }
 
 interface OrgResult {
+  auth_method: AuthMethod;
   org_id: string | null;
   org_slug: string | null;
   org_name: string | null;
@@ -246,7 +250,9 @@ function emitCommand<T>(data: T, human: string, opts: AuthCommandOptions): void 
 }
 
 function identityFromToken(token: string): Pick<LoginResult, 'subject' | 'email'> {
-  const claims = decodeJwtClaims(token);
+  // An API key carries no claims; decoding its secret half as a JWT payload
+  // could only produce noise.
+  const claims = isApiKeyToken(token) ? null : decodeJwtClaims(token);
   return {
     subject: claims?.sub ?? null,
     email: claims?.email ?? null,
@@ -283,13 +289,18 @@ function emitLogin(
   }
 }
 
+function everyTokenStatusLabel(status: AuthStatus): string {
+  if (!status.every_token) return 'not set';
+  return status.auth_method === 'api_key' ? 'overriding (Every API key)' : 'overriding';
+}
+
 function statusHuman(status: AuthStatus): string {
   return [
     `Logged in: ${status.logged_in ? 'yes' : 'no'}`,
     `Environment: ${status.environment}`,
     `Base URL: ${status.base_url}`,
     `Storage: ${status.storage_backend}`,
-    `EVERY_TOKEN: ${status.every_token ? 'overriding' : 'not set'}`,
+    `EVERY_TOKEN: ${everyTokenStatusLabel(status)}`,
     `Issuer: ${status.issuer ?? 'none'}`,
     `Expires: ${status.expires ?? 'unknown'}`,
     `Refresh token: ${status.refresh_token ? 'yes' : 'no'}`,
@@ -298,6 +309,7 @@ function statusHuman(status: AuthStatus): string {
 
 function orgFromUserInfo(userinfo: UserInfo): OrgResult {
   return {
+    auth_method: 'oauth',
     org_id: userinfo.org_id,
     org_slug: userinfo.org_slug,
     org_name: userinfo.org_name,
@@ -316,6 +328,38 @@ function orgHuman(org: OrgResult): string {
   ];
 
   return lines.join('\n');
+}
+
+/**
+ * What an API key can truthfully say about its workspace.
+ *
+ * The key IS bound to exactly one org, but that binding lives server-side: the
+ * MCP surface hands a key no org identity (the only tool that reports one,
+ * `get_home`, is denied to keys), and the OAuth userinfo endpoint cannot resolve
+ * the key at all. So the workspace is stated as unavailable rather than guessed
+ * at, and there is no `every org switch` suggestion — a key cannot switch.
+ */
+const API_KEY_ORG_LINE =
+  'Org: not reported for API keys — the key is bound to one workspace on the server';
+
+function apiKeyOrgHuman(environment: string, baseUrl: string): string {
+  return [
+    API_KEY_ORG_LINE,
+    'Authenticated: yes (Every API key)',
+    `Environment: ${environment} (${baseUrl})`,
+    'Note: the server scopes writes to the key\'s workspace.',
+    `Manage keys in Every: Settings → API keys (${apiKeysUrlForBaseUrl(baseUrl)})`,
+  ].join('\n');
+}
+
+function apiKeyWhoamiHuman(data: WhoamiResult): string {
+  return [
+    'Authenticated: yes (Every API key)',
+    API_KEY_ORG_LINE,
+    `Environment: ${data.environment} (${data.base_url})`,
+    `Tools: ${data.tools} available to this key`,
+    `Manage keys in Every: Settings → API keys (${apiKeysUrlForBaseUrl(data.base_url)})`,
+  ].join('\n');
 }
 
 function formatUser(userinfo: UserInfo): string {
@@ -364,7 +408,11 @@ function validateBrowserLogin(opts: AuthCommandOptions, switching = false): void
   if (opts.org !== undefined) validateOrgTarget(opts.org);
   if (process.env.EVERY_TOKEN && (switching || opts.org !== undefined)) {
     throw new CliError(
-      'Workspace switching requires stored credentials; unset EVERY_TOKEN and try again.',
+      activeCredentialIsApiKey()
+        ? 'An Every API key is bound to one workspace and cannot switch. ' +
+          'Workspace switching requires stored credentials; unset EVERY_TOKEN and try again, ' +
+          'or mint a key in the other workspace under Settings → API keys.'
+        : 'Workspace switching requires stored credentials; unset EVERY_TOKEN and try again.',
       ExitCode.USAGE,
       'usage',
     );
@@ -627,14 +675,50 @@ export async function authStatusCommand(opts: AuthCommandOptions = {}): Promise<
   emitCommand(status, statusHuman(status), opts);
 }
 
+/**
+ * `every whoami` for an org API key.
+ *
+ * The key is verified where it is actually valid — the MCP server — instead of
+ * at the Clerk userinfo endpoint, which knows nothing about it and answers 401.
+ * `tools/list` is the right probe: it needs no scope of its own, and the server
+ * filters it to the key's scopes, so the count doubles as "what this key can
+ * do". A rejected key surfaces its own reason from mcpCall, never a login
+ * prompt. Identity fields stay null because no reachable surface reports them
+ * for a key — never guessed from a cache written by some other credential.
+ */
+async function apiKeyWhoami(baseUrl: string, opts: AuthCommandOptions): Promise<void> {
+  const token = await getToken({ baseUrl });
+  const liveness = await verifyMcpLiveness(baseUrl, token);
+  const data: WhoamiResult = {
+    authenticated: liveness.authenticated,
+    auth_method: 'api_key',
+    user_id: null,
+    subject: null,
+    email: null,
+    name: null,
+    org_id: null,
+    org_slug: null,
+    org_name: null,
+    environment: environmentNameForBaseUrl(baseUrl),
+    base_url: baseUrl,
+    tools: liveness.tools,
+  };
+
+  emitCommand(data, apiKeyWhoamiHuman(data), opts);
+  await maybeShowSkillHint();
+}
+
 export async function whoamiCommand(opts: AuthCommandOptions = {}): Promise<void> {
   const baseUrl = resolveBaseUrl({ staging: opts.staging });
+  if (activeCredentialIsApiKey()) return apiKeyWhoami(baseUrl, opts);
+
   const userinfo = await fetchUserInfo({ baseUrl });
   const token = await getToken({ baseUrl });
   const liveness = await verifyMcpLiveness(baseUrl, token);
   const environment = environmentNameForBaseUrl(baseUrl);
   const data: WhoamiResult = {
     authenticated: liveness.authenticated,
+    auth_method: 'oauth',
     user_id: userinfo.user_id,
     subject: userinfo.user_id,
     email: userinfo.email,
@@ -663,6 +747,23 @@ export async function whoamiCommand(opts: AuthCommandOptions = {}): Promise<void
 
 export async function orgCommand(opts: AuthCommandOptions = {}): Promise<void> {
   const baseUrl = resolveBaseUrl({ staging: opts.staging });
+  if (activeCredentialIsApiKey()) {
+    // Still verify the credential against the MCP server, so a dead key reports
+    // itself as rejected rather than quietly returning an empty workspace.
+    await verifyMcpLiveness(baseUrl, await getToken({ baseUrl }));
+    const org: OrgResult = {
+      auth_method: 'api_key',
+      org_id: null,
+      org_slug: null,
+      org_name: null,
+      organization_id: null,
+      organization_slug: null,
+      organization_name: null,
+    };
+    emitCommand(org, apiKeyOrgHuman(environmentNameForBaseUrl(baseUrl), baseUrl), opts);
+    return;
+  }
+
   const org = orgFromUserInfo(await fetchUserInfo({ baseUrl }));
   emitCommand(org, orgHuman(org), opts);
 }

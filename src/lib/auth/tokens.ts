@@ -3,6 +3,7 @@ import path from 'node:path';
 import { getConfigDir, PROD_BASE_URL, resolveBaseUrl, STAGING_BASE_URL } from '../config.js';
 import { CliError } from '../errors.js';
 import { ExitCode } from '../exit-codes.js';
+import { AuthMethod, authMethodForToken, isApiKeyToken } from './api-key.js';
 import { DEFAULT_SCOPE } from './dcr.js';
 import { discoverOAuth, fetchJsonWithTimeout, HttpStatusError } from './discovery.js';
 import { decodeJwtClaims } from './jwt.js';
@@ -54,6 +55,8 @@ export interface AuthStatus {
   base_url: string;
   storage_backend: 'keyring' | 'file';
   every_token: boolean;
+  /** How the active credential authenticates; `null` when there is none. */
+  auth_method: AuthMethod | null;
   issuer: string | null;
   expires_at: number | null;
   expires_in_seconds: number | null;
@@ -385,7 +388,10 @@ export async function getAuthStatus(opts: {
   const now = opts.now ?? Date.now;
   const override = process.env.EVERY_TOKEN;
   const stored = await store.get(environmentKey);
-  const claims = override ? decodeJwtClaims(override) : null;
+  // An API key is not a JWT: its secret half is arbitrary base64url text, so
+  // decoding it as claims can only ever yield nothing or a fabricated expiry.
+  const apiKey = isApiKeyToken(override);
+  const claims = override && !apiKey ? decodeJwtClaims(override) : null;
   const expiresAt = override ? claims?.exp : stored?.expires_at;
   const expiresIn = typeof expiresAt === 'number' ? expiresAt - nowSeconds(now) : null;
 
@@ -395,6 +401,7 @@ export async function getAuthStatus(opts: {
     base_url: baseUrl,
     storage_backend: store.backend,
     every_token: Boolean(override),
+    auth_method: override || stored ? authMethodForToken(override) : null,
     issuer: stored?.issuer ?? null,
     expires_at: typeof expiresAt === 'number' ? expiresAt : null,
     expires_in_seconds: expiresIn,

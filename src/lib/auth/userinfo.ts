@@ -3,6 +3,7 @@ import path from 'node:path';
 import { getConfigDir } from '../config.js';
 import { CliError } from '../errors.js';
 import { ExitCode } from '../exit-codes.js';
+import { isApiKeyToken } from './api-key.js';
 import { discoverOAuth, fetchJsonWithTimeout, HttpStatusError } from './discovery.js';
 import {
   environmentKeyForBaseUrl,
@@ -162,6 +163,18 @@ async function fetchOpenIdConfiguration(issuer: string): Promise<OpenIdConfigura
 export async function fetchUserInfo(opts: FetchUserInfoOptions = {}): Promise<UserInfo> {
   const { baseUrl } = resolveAuthTarget(opts);
   const token = await getToken({ baseUrl, store: opts.store, now: opts.now });
+  // An API key has no OAuth identity to fetch. Refusing here — BEFORE the cache
+  // read — also stops the identity cache from answering for the wrong
+  // credential: it is keyed by base URL alone, so a login earlier on this
+  // machine would otherwise have this key's caller shown another account's org.
+  if (isApiKeyToken(token)) {
+    throw new CliError(
+      'An Every API key has no OAuth user identity to look up. ' +
+      'Run \'every whoami\' to verify the key instead.',
+      ExitCode.AUTH,
+      'auth',
+    );
+  }
   if (!opts.forceRefresh) {
     const cached = await readCachedUserInfo(baseUrl, { now: opts.now }).catch(() => undefined);
     if (cached) return cached;

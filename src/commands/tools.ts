@@ -11,6 +11,7 @@ import {
   requirementDescription,
   requirementFor,
 } from '../lib/policy.js';
+import { activeCredentialIsApiKey } from '../lib/auth/api-key.js';
 import { getToken } from '../lib/auth/tokens.js';
 import { fetchUserInfo, UserInfo } from '../lib/auth/userinfo.js';
 import { maybeShowSkillHint } from '../lib/hints.js';
@@ -308,12 +309,18 @@ function targetLabel(
   userinfo: UserInfo | undefined,
   environment: string,
 ): string {
+  // An API key resolves no userinfo by design, so name the credential instead
+  // of reporting "unknown org" as though a lookup had failed.
+  if (activeCredentialIsApiKey()) return `the API key's workspace · ${environment}`;
   const orgName = userinfo?.org_name ?? 'unknown org';
   const orgId = userinfo?.org_id ?? 'unknown';
   return `${orgName} (${orgId}) · ${environment}`;
 }
 
 async function resolveWriteTarget(baseUrl: string): Promise<UserInfo | undefined> {
+  // API keys have no OAuth identity to resolve; asking would fail every time
+  // and print a "could not verify target org" warning that names the wrong fix.
+  if (activeCredentialIsApiKey()) return undefined;
   try {
     return await fetchUserInfo({ baseUrl });
   } catch (err) {
