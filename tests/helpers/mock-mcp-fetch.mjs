@@ -121,11 +121,20 @@ const defaultUserInfo = {
   name: 'Person Example', org_id: 'org_123', org_slug: 'acme', org_name: 'Acme Co',
 };
 
+/**
+ * Org API keys the mock MCP server accepts. Mirrors the real split: admin-mcp
+ * validates an `evk_` key itself, while Clerk's userinfo endpoint knows nothing
+ * about it — so a key authenticates for MCP calls and 401s at userinfo.
+ */
+export const VALID_API_KEY = 'evk_11111111-1111-1111-1111-111111111111.valid-secret';
+export const INVALID_API_KEY = 'evk_00000000-0000-0000-0000-000000000000.bad';
+
 function readState() {
   const defaults = {
     listCalls: 0, toolCalls: [], openidCalls: 0, userinfoCalls: 0,
     authorizationRequests: [], networkFailures: [],
     tokenUserInfo: { 'test-token': defaultUserInfo, 'exchanged-token': defaultUserInfo },
+    apiKeys: [VALID_API_KEY],
   };
   try {
     return { ...defaults, ...JSON.parse(readFileSync(stateFile, 'utf8')) };
@@ -245,8 +254,13 @@ export function installMockMcpFetch(mockBaseUrl, mockStateFile, visitCallback = 
     }
 
     const headers = new Headers(init.headers);
-    if (!readState().tokenUserInfo[headers.get('authorization')?.replace(/^Bearer /, '')]) {
-      return response({ error: 'unauthorized' }, 401);
+    const bearer = headers.get('authorization')?.replace(/^Bearer /, '');
+    const authState = readState();
+    if (!authState.tokenUserInfo[bearer] && !(authState.apiKeys ?? []).includes(bearer)) {
+      // Verbatim body admin-mcp's ClerkAuthMiddleware returns for a rejected
+      // bearer, confirmed against https://admin-mcp.every.ai (no
+      // WWW-Authenticate header on this path).
+      return response({ error: 'invalid_token', error_description: 'Invalid or expired token' }, 401);
     }
 
     const body = JSON.parse(typeof init.body === 'string' ? init.body : '{}');

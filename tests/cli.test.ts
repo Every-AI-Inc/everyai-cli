@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { INVALID_API_KEY, VALID_API_KEY } from './helpers/mock-mcp-fetch.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const entrypoint = path.join(repoRoot, 'src', 'index.ts');
@@ -438,6 +439,7 @@ describe('CLI contract', () => {
         env: 'custom',
         schema_version: 1,
         data: {
+          auth_method: 'oauth',
           org_id: 'org_123',
           org_slug: 'acme',
           org_name: 'Acme Co',
@@ -446,6 +448,61 @@ describe('CLI contract', () => {
           organization_name: 'Acme Co',
         },
       });
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('whoami works end to end with an org API key in EVERY_TOKEN', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli(
+        ['whoami', '--json'],
+        mockEnv(server, configDir, { EVERY_TOKEN: VALID_API_KEY }),
+      );
+
+      expect(result.code).toBe(0);
+      expect(parseJsonStdout(result.stdout)).toMatchObject({
+        ok: true,
+        data: {
+          authenticated: true,
+          auth_method: 'api_key',
+          org_id: null,
+          environment: 'custom',
+          base_url: server.baseUrl,
+          tools: expect.any(Number),
+        },
+      });
+      expect(result.stdout).not.toContain('Not logged in');
+      expect(result.stdout).not.toContain(VALID_API_KEY);
+      // The key is verified at the MCP server; Clerk is never consulted.
+      expect(server.userinfoCalls).toBe(0);
+      expect(server.listCalls).toBe(1);
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('whoami reports a rejected API key as rejected, not as a missing login', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli(
+        ['whoami', '--json'],
+        mockEnv(server, configDir, { EVERY_TOKEN: INVALID_API_KEY }),
+      );
+
+      expect(result.code).toBe(3);
+      const parsed = parseJsonStdout(result.stdout) as { error: { message: string; code: string } };
+      expect(parsed.error.code).toBe('auth');
+      expect(parsed.error.message).toContain('Every rejected the API key in EVERY_TOKEN');
+      expect(parsed.error.message).toContain('Invalid or expired token');
+      expect(parsed.error.message).toContain('/settings/api-keys');
+      expect(result.stdout).not.toContain('every login');
+      expect(result.stdout).not.toContain(INVALID_API_KEY);
     } finally {
       await server.close();
       await rm(configDir, { recursive: true, force: true });
