@@ -1209,6 +1209,27 @@ describe('CLI contract', () => {
     }
   });
 
+  it('surfaces a structured server error code as error.code, keeping exit 1', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli(['tool', 'call', 'tool_refusal', '--json'], mockEnv(server, configDir));
+
+      expect(result.code).toBe(1);
+      expect(parseJsonStdout(result.stdout)).toMatchObject({
+        ok: false,
+        error: {
+          code: 'duplicate_deal',
+          message: 'A Deal for this party already exists.',
+          tool_error: { code: 'duplicate_deal', existing_deal_id: 'd1' },
+        },
+      });
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
   it('explains ask_assistant policy offline without requiring auth or network', async () => {
     const configDir = await tempConfig();
     try {

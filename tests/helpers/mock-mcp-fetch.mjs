@@ -37,6 +37,13 @@ const baseTools = [
     inputSchema: { type: 'object' },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   },
+  {
+    name: 'tool_refusal',
+    title: 'Tool refusal',
+    description: 'Return an MCP tool-level error carrying a structured server error code.',
+    inputSchema: { type: 'object' },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  },
 ];
 
 const confirmationArg = 'confirmation';
@@ -368,6 +375,21 @@ export function installMockMcpFetch(mockBaseUrl, mockStateFile, visitCallback = 
         const err = new Error('mock destructive timeout');
         err.name = 'TimeoutError';
         throw err;
+      }
+
+      if (name === 'tool_refusal') {
+        return response({
+          jsonrpc: '2.0',
+          id: body.id,
+          result: {
+            isError: true,
+            content: [{ type: 'text', text: 'A Deal for this party already exists.' }],
+            structuredContent: {
+              result: 'A Deal for this party already exists.',
+              error: { code: 'duplicate_deal', message: 'A Deal for this party already exists.', existing_deal_id: 'd1' },
+            },
+          },
+        });
       }
 
       if (name === 'tool_error') {

@@ -34,7 +34,7 @@ Always pass `--json`. Parse the envelope every time:
 Check process exit codes:
 
 - `0`: success.
-- `1`: tool or generic error. Read the error message before deciding whether to retry.
+- `1`: tool or generic error. If `error.code` is not `generic`, it is the server's stable refusal code (e.g. `duplicate_deal`, `party_unresolved`, `contact_suppressed`) and `error.tool_error` has the details — act on the code, not the wording. A refusal means nothing was created or changed unless the message says otherwise. Read the error message before deciding whether to retry.
 - `2`: usage error. Fix the command or arguments.
 - `3`: auth error. Tell the user to run `every login`.
 - `4`: permission or confirmation needed. If present, inspect `error.mcp_gate`. A repeated `text_confirmation` means the CLI's one safe retry was still rejected; stop and report it. For `human_approval`, do not retry until the user approves in Every. Without `mcp_gate`, do not add confirmation flags unless the user authorized the action.

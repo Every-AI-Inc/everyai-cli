@@ -421,10 +421,31 @@ export async function invokeToolCall(
         mcp_gate: marker,
       });
     }
+    // Servers that follow Every's write-result contract attach a stable,
+    // machine-readable code in structuredContent.error (e.g. duplicate_deal,
+    // party_unresolved). Surface it as error.code with the full server error
+    // under error.tool_error; older servers send none, so this falls back to
+    // 'generic' and behaves exactly as before.
+    const toolError = structuredToolError(result.structuredContent);
+    if (toolError) {
+      throw new CliError(rawMessage, ExitCode.GENERIC, toolError.code, { tool_error: toolError });
+    }
     throw new CliError(rawMessage, ExitCode.GENERIC, 'generic');
   }
 
   return data;
+}
+
+/** The server's structured tool error, when it sent a well-formed one. */
+function structuredToolError(
+  structured: unknown,
+): ({ code: string } & Record<string, unknown>) | undefined {
+  if (!structured || typeof structured !== 'object') return undefined;
+  const error = (structured as Record<string, unknown>).error;
+  if (!error || typeof error !== 'object') return undefined;
+  const code = (error as Record<string, unknown>).code;
+  if (typeof code !== 'string' || !/^[a-z][a-z0-9_]{0,63}$/.test(code)) return undefined;
+  return { ...(error as Record<string, unknown>), code };
 }
 
 export async function executeToolCall(

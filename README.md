@@ -91,6 +91,8 @@ Every command supports `--json`: exactly one JSON document on stdout, nothing el
 
 Exit codes: `0` ok · `1` tool/generic error · `2` usage · `3` auth (run `every login`) · `4` permission/confirmation needed · `5` rate-limited · `6` not found · `7` network/timeout.
 
+When a tool refuses (exit `1`) and the server attached a structured error, `error.code` is the server's stable, machine-readable code — e.g. `duplicate_deal`, `party_unresolved`, `contact_suppressed`, `deal_archived`, `person_has_references` — and `error.tool_error` carries the server's full error object (e.g. `existing_deal_id`). Branch on the code, never on the message. Servers that send no structured error still produce `error.code: "generic"`. Successful creates return the new record's id in `data.structured_content` (e.g. `structured_content.deal.id`).
+
 Server-side human approvals never trigger an automatic destructive retry. If Every shows a pending approval after a destructive call returns or times out, approve it there and then re-run the identical command. The CLI sends one `tools/call` per invocation for a human-approval-gated action, and a still-valid approval can be consumed by that later invocation.
 
 In `--json` mode, a server approval response uses exit `4` and includes a structured `error.mcp_gate` object. After local `--yes` or interactive consent, `type: "text_confirmation"` is retried once automatically; `type: "human_approval"` is returned to the caller without retrying.
