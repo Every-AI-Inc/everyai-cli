@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { CliError } from '../lib/errors.js';
 import { ExitCode } from '../lib/exit-codes.js';
+import { emit } from '../lib/output.js';
 import {
   executeToolCall,
   invokeToolCall,
@@ -39,7 +40,6 @@ interface DealMoveOptions extends ToolExecutionOptions {}
 
 const INVOICE_STATUSES = new Set(['draft', 'issued', 'void']);
 const PAYMENT_STATUSES = new Set(['unpaid', 'paid', 'overdue', 'partial']);
-const DEAL_STAGES = new Set(['lead', 'opportunity', 'won', 'lost']);
 // list_companies/list_people (the live People/Companies search tools) take a
 // free-text `query` param — the retired list_clients/list_contacts tools took `name`.
 const NETWORK_SEARCH_QUERY_PARAM = 'query';
@@ -78,16 +78,6 @@ function parseLimit(value: string | undefined): number | undefined {
     throw new CliError('--limit must be a non-negative integer', ExitCode.USAGE, 'usage');
   }
   return limit;
-}
-
-function assertDealStage(stage: string): void {
-  if (!DEAL_STAGES.has(stage)) {
-    throw new CliError(
-      `stage must be one of: ${Array.from(DEAL_STAGES).join(', ')}`,
-      ExitCode.USAGE,
-      'usage',
-    );
-  }
 }
 
 function addLimit(args: Record<string, unknown>, value: string | undefined): void {
@@ -394,14 +384,14 @@ export async function invoiceCreateCommand(opts: InvoiceCreateOptions = {}): Pro
 
 export async function dealListCommand(opts: DealListOptions = {}): Promise<void> {
   const args: Record<string, unknown> = {};
-  if (opts.stage !== undefined) {
-    assertDealStage(opts.stage);
-    args.stage = opts.stage;
-  }
+  // Stages are per-workspace (a key or a label, e.g. "lead" or "Discovery
+  // booked"); the server resolves them and answers stage_not_found with the
+  // workspace's live list, so there is no client-side stage check.
+  if (opts.stage !== undefined) args.stage = opts.stage;
   if (opts.search !== undefined) args.search = opts.search;
   addLimit(args, opts.limit);
 
-  await executeToolCall('list_deals', opts, async () => args);
+  await withStageErrors(opts.stage, () => executeToolCall('list_deals', opts, async () => args));
 }
 
 export async function dealMoveCommand(
@@ -409,8 +399,131 @@ export async function dealMoveCommand(
   stage: string,
   opts: DealMoveOptions = {},
 ): Promise<void> {
-  assertDealStage(stage);
-  await executeToolCall('move_deal_stage', opts, async () => ({ deal_id: dealId, stage }));
+  await withStageErrors(stage, () =>
+    executeToolCall('move_deal_stage', opts, async () => ({ deal_id: dealId, stage })),
+  );
+}
+
+export interface PipelineStage {
+  key: string;
+  label: string;
+  role: string;
+  criteria: string;
+  agent_can_move_to_stage?: boolean;
+}
+
+function stageName(stage: Record<string, unknown>): string | undefined {
+  for (const field of ['label', 'key']) {
+    const value = stage[field];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+/** `Unknown stage "<input>". Available stages: Lead, Discovery booked, ...` */
+export function unknownStageMessage(input: string, available: unknown): string {
+  const names = Array.isArray(available)
+    ? available
+        .map((entry) =>
+          entry && typeof entry === 'object' ? stageName(entry as Record<string, unknown>) : undefined,
+        )
+        .filter((name): name is string => name !== undefined)
+    : [];
+  const list = names.length ? names.join(', ') : 'run `every deal stages` to list them';
+  return `Unknown stage "${input}". Available stages: ${list}`;
+}
+
+// The server's stage_not_found refusal carries the workspace's live stage list
+// (structuredContent.error.available_stages). Re-render it as one readable
+// sentence; the error code, exit status and tool_error details are unchanged.
+async function withStageErrors(input: string | undefined, run: () => Promise<void>): Promise<void> {
+  try {
+    await run();
+  } catch (err) {
+    if (err instanceof CliError && err.code === 'stage_not_found') {
+      const toolError = (err.details?.tool_error ?? {}) as Record<string, unknown>;
+      const stage = typeof toolError.stage === 'string' ? toolError.stage : input ?? '';
+      throw new CliError(
+        unknownStageMessage(stage, toolError.available_stages),
+        err.exitCode,
+        err.code,
+        err.details,
+      );
+    }
+    throw err;
+  }
+}
+
+function oneLine(value: unknown, max = 80): string {
+  const text = typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
+  return text.length > max ? `${text.slice(0, max - 3)}...` : text;
+}
+
+/** The ordered stage list from get_pipeline_settings' structured result. */
+export function parsePipelineStages(structured: unknown): PipelineStage[] {
+  if (!structured || typeof structured !== 'object') return [];
+  const record = structured as Record<string, unknown>;
+  const body = (
+    record.result && typeof record.result === 'object' ? record.result : record
+  ) as Record<string, unknown>;
+  let entries: unknown = body.stages;
+  // A server that predates customizable stages returns a map keyed by the
+  // four default stage names instead of the ordered list.
+  if (entries && typeof entries === 'object' && !Array.isArray(entries)) {
+    entries = Object.entries(entries as Record<string, unknown>).map(([key, value]) => ({
+      ...(value && typeof value === 'object' ? (value as Record<string, unknown>) : {}),
+      key,
+      label: key.charAt(0).toUpperCase() + key.slice(1),
+      role: LEGACY_STAGE_ROLES[key] ?? 'middle',
+    }));
+  }
+  if (!Array.isArray(entries)) return [];
+  return entries
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object')
+    .map((entry) => ({
+      key: String(entry.key ?? entry.name ?? ''),
+      label: String(entry.label ?? entry.display_name ?? entry.key ?? ''),
+      role: String(entry.role ?? ''),
+      criteria: typeof entry.criteria === 'string' ? entry.criteria : '',
+      ...(typeof entry.agent_can_move_to_stage === 'boolean'
+        ? { agent_can_move_to_stage: entry.agent_can_move_to_stage }
+        : {}),
+    }))
+    .filter((stage) => stage.key);
+}
+
+const LEGACY_STAGE_ROLES: Record<string, string> = {
+  lead: 'lead',
+  opportunity: 'middle',
+  won: 'won',
+  lost: 'lost',
+};
+
+function stagesHuman(stages: PipelineStage[]): string {
+  if (!stages.length) {
+    return 'No pipeline stages returned. Run: every tool call get_pipeline_settings --json';
+  }
+  const labelWidth = Math.min(28, Math.max('label'.length, ...stages.map((s) => s.label.length)));
+  const keyWidth = Math.min(20, Math.max('key'.length, ...stages.map((s) => s.key.length)));
+  const roleWidth = Math.max('role'.length, ...stages.map((s) => s.role.length));
+  const lines = [
+    `${'label'.padEnd(labelWidth)}  ${'key'.padEnd(keyWidth)}  ${'role'.padEnd(roleWidth)}  criteria`,
+    `${'-'.repeat(labelWidth)}  ${'-'.repeat(keyWidth)}  ${'-'.repeat(roleWidth)}  ${'-'.repeat(8)}`,
+  ];
+  for (const stage of stages) {
+    lines.push(
+      `${stage.label.padEnd(labelWidth)}  ${stage.key.padEnd(keyWidth)}  ${stage.role.padEnd(roleWidth)}  ${oneLine(stage.criteria)}`,
+    );
+  }
+  lines.push('', 'Pass a key or a label to: every deal move <deal_id> <stage> | every deal list --stage <stage>');
+  return lines.join('\n');
+}
+
+export async function dealStagesCommand(opts: ToolExecutionOptions = {}): Promise<void> {
+  const data = await invokeToolCall('get_pipeline_settings', opts);
+  const stages = parsePipelineStages(data.structured_content);
+  if (opts.json) emit({ ...data, stages }, { json: true, staging: opts.staging });
+  else process.stdout.write(`${stagesHuman(stages)}\n`);
 }
 
 export async function contactListCommand(opts: ContactListOptions = {}): Promise<void> {

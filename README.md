@@ -63,8 +63,9 @@ every tool call <name> [--args file.json|-] [--arg k=v ...] [--yes] [--allow-des
 # Curated aliases (same gates, nicer flags)
 every invoice list [--status <s>] [--search <q>] [--limit <n>]
 every invoice send <invoice_id>            # destructive: needs --yes --allow-destructive
-every deal list [--stage <s>] [--search <q>]
-every deal move <deal_id> <stage>          # write: needs --yes
+every deal stages                          # this workspace's stages: label, key, role, criteria
+every deal list [--stage <s>] [--search <q>]   # <s>: a stage key or label
+every deal move <deal_id> <stage>          # write: needs --yes; stage = key or label
 every contact list [--search <q>]
 
 # Teach your coding agent to use all of this well

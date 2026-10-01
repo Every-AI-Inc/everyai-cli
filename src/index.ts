@@ -21,6 +21,7 @@ import {
   contactListCommand,
   dealListCommand,
   dealMoveCommand,
+  dealStagesCommand,
   invoiceCreateCommand,
   invoiceListCommand,
   invoiceSendCommand,
@@ -352,7 +353,7 @@ withGlobalOptions(
     dealCommand
       .command('list')
       .description('List deals')
-      .option('--stage <s>', 'deal stage filter')
+      .option('--stage <s>', 'deal stage filter: a key or label from `every deal stages`')
       .option('--search <q>', 'deal search query')
       .option('--limit <n>', 'maximum number of deals to return'),
   ),
@@ -378,11 +379,30 @@ withGlobalOptions(
       .command('move')
       .description('Move a deal to another stage')
       .argument('<deal_id>', 'deal id')
-      .argument('<stage>', 'target stage'),
+      .argument('<stage>', 'target stage: a key or label from `every deal stages`'),
   ),
 ).action(async (dealId: string, stage: string, _options: unknown, command: Command) => {
   const opts = command.optsWithGlobals();
   await dealMoveCommand(dealId, stage, {
+    json: opts.json,
+    staging: opts.staging,
+    noCache: opts.noCache,
+    yes: opts.yes,
+    allowDestructive: opts.allowDestructive,
+    readOnly: opts.readOnly,
+    timeout: opts.timeout,
+  });
+});
+
+withGlobalOptions(
+  withToolExecutionOptions(
+    dealCommand
+      .command('stages')
+      .description("List this workspace's pipeline stages (label, key, role, criteria)"),
+  ),
+).action(async (_options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await dealStagesCommand({
     json: opts.json,
     staging: opts.staging,
     noCache: opts.noCache,

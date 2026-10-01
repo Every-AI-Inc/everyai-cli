@@ -46,6 +46,20 @@ const baseTools = [
   },
 ];
 
+// A workspace with one custom middle stage, in board order.
+const mockStages = [
+  { key: 'lead', label: 'Lead', role: 'lead', criteria: 'A person worth reaching out to.' },
+  {
+    key: 'stage_1a2b3c4d',
+    label: 'Discovery booked',
+    role: 'middle',
+    criteria: 'A discovery call is on the calendar.\nBoth sides confirmed the time.',
+  },
+  { key: 'opportunity', label: 'Opportunity', role: 'middle', criteria: 'Real buying intent.' },
+  { key: 'won', label: 'Won', role: 'won', criteria: 'Signed or paid.' },
+  { key: 'lost', label: 'Lost', role: 'lost', criteria: 'No longer pursuing.' },
+];
+
 const confirmationArg = 'confirmation';
 const identifyingArgs = [
   'invoice_id',
@@ -375,6 +389,63 @@ export function installMockMcpFetch(mockBaseUrl, mockStateFile, visitCallback = 
         const err = new Error('mock destructive timeout');
         err.name = 'TimeoutError';
         throw err;
+      }
+
+      // Customizable deal stages: the server resolves a key/label/alias and
+      // refuses anything else with the org's live list (stage_not_found).
+      if ((name === 'move_deal_stage' || name === 'list_deals') && args.stage !== undefined) {
+        const wanted = String(args.stage).trim().toLowerCase();
+        const known = mockStages.some(
+          (stage) => stage.key === wanted || stage.label.toLowerCase() === wanted,
+        );
+        if (!known) {
+          const message = `Unknown stage "${args.stage}". Available stages: ${mockStages.map((s) => s.label).join(', ')}.`;
+          return response({
+            jsonrpc: '2.0',
+            id: body.id,
+            result: {
+              isError: true,
+              content: [{ type: 'text', text: message }],
+              structuredContent: {
+                result: message,
+                error: {
+                  code: 'stage_not_found',
+                  message,
+                  stage: args.stage,
+                  available_stages: mockStages.map(({ key, label, role }) => ({ key, label, role })),
+                },
+              },
+            },
+          });
+        }
+      }
+
+      if (name === 'get_pipeline_settings') {
+        const settings = {
+          success: true,
+          scope: 'org_level',
+          stages: mockStages.map((stage, position) => ({
+            id: `stage-${position}`,
+            key: stage.key,
+            name: stage.key,
+            label: stage.label,
+            display_name: stage.label,
+            role: stage.role,
+            position,
+            criteria: stage.criteria,
+            agent_can_move_to_stage: true,
+          })),
+          won_automation_enabled: true,
+        };
+        return response({
+          jsonrpc: '2.0',
+          id: body.id,
+          result: {
+            content: [{ type: 'text', text: JSON.stringify(settings) }],
+            structuredContent: settings,
+            isError: false,
+          },
+        });
       }
 
       if (name === 'tool_refusal') {

@@ -553,12 +553,6 @@
     "stage": {
      "anyOf": [
       {
-       "enum": [
-        "lead",
-        "opportunity",
-        "won",
-        "lost"
-       ],
        "type": "string"
       },
       {
@@ -566,6 +560,7 @@
       }
      ],
      "default": null,
+     "description": "A stage key or label from get_pipeline_settings (e.g. 'lead', 'won', or a custom stage such as 'Discovery booked'); case-insensitive.",
      "title": "Stage"
     },
     "review_state": {
@@ -684,12 +679,7 @@
      "type": "string"
     },
     "stage": {
-     "enum": [
-      "lead",
-      "opportunity",
-      "won",
-      "lost"
-     ],
+     "description": "A stage key or label from get_pipeline_settings (e.g. 'lead', 'won', or a custom stage such as 'Discovery booked'); case-insensitive.",
      "title": "Stage",
      "type": "string"
     }
@@ -801,5 +791,22 @@
    "openai/toolInvocation/invoking": "Asking your Every assistant...",
    "openai/toolInvocation/invoked": "Assistant answered"
   }
+ },
+ {
+  "name": "get_pipeline_settings",
+  "title": "Get pipeline settings",
+  "description": "Read the org's pipeline (sales stage) settings: the ordered stages (key, label,\nrole), each stage's success criteria and whether the agent is allowed to move a deal\ninto it, plus whether Won automation is enabled overall. Stages are per workspace \u2014\nuse a key or label from here wherever a tool takes a stage. Read-only \u2014 settings are\nchanged in the Every app.",
+  "inputSchema": {
+   "properties": {},
+   "title": "get_pipeline_settingsArguments",
+   "type": "object"
+  },
+  "annotations": {
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": false,
+   "readOnlyHint": true
+  },
+  "_meta": null
  }
 ]

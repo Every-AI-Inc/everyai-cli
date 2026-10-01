@@ -1303,6 +1303,14 @@ describe('CLI contract', () => {
       { name: 'move_deal_stage', arguments: { deal_id: 'deal_123', stage: 'won' } },
     ],
     [
+      ['deal', 'move', 'deal_123', 'Discovery booked', '--yes', '--json'],
+      { name: 'move_deal_stage', arguments: { deal_id: 'deal_123', stage: 'Discovery booked' } },
+    ],
+    [
+      ['deal', 'list', '--stage', 'stage_1a2b3c4d', '--json'],
+      { name: 'list_deals', arguments: { stage: 'stage_1a2b3c4d' } },
+    ],
+    [
       ['contact', 'list', '--search', 'Brandon', '--limit', '2', '--json'],
       { name: 'list_people', arguments: { query: 'Brandon', limit: 2 } },
     ],
@@ -1366,6 +1374,94 @@ describe('CLI contract', () => {
       expect(alias.code).toBe(0);
       expect(direct.code).toBe(0);
       expect(parseJsonStdout(alias.stdout)).toEqual(parseJsonStdout(direct.stdout));
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('renders the server stage_not_found refusal with the workspace stage list', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli(
+        ['deal', 'move', 'deal_123', 'Negotiating', '--yes', '--json'],
+        mockEnv(server, configDir),
+      );
+
+      expect(result.code).toBe(1);
+      expect(parseJsonStdout(result.stdout)).toMatchObject({
+        ok: false,
+        error: {
+          code: 'stage_not_found',
+          message:
+            'Unknown stage "Negotiating". Available stages: Lead, Discovery booked, Opportunity, Won, Lost',
+          tool_error: {
+            code: 'stage_not_found',
+            stage: 'Negotiating',
+            available_stages: expect.arrayContaining([
+              { key: 'stage_1a2b3c4d', label: 'Discovery booked', role: 'middle' },
+            ]),
+          },
+        },
+      });
+      // No local stage check: the value reached the server unchanged.
+      expect(server.toolCalls).toEqual([
+        { name: 'move_deal_stage', arguments: { deal_id: 'deal_123', stage: 'Negotiating' } },
+      ]);
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('prints the unknown-stage sentence on stderr for a human deal list', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli(['deal', 'list', '--stage', 'bogus'], mockEnv(server, configDir));
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain(
+        'Unknown stage "bogus". Available stages: Lead, Discovery booked, Opportunity, Won, Lost',
+      );
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('lists the workspace stages with deal stages', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const env = mockEnv(server, configDir);
+      const json = await runCli(['deal', 'stages', '--json'], env);
+      expect(json.code).toBe(0);
+      const parsed = parseJsonStdout(json.stdout) as { data: { tool: string; stages: unknown[] } };
+      expect(parsed.data.tool).toBe('get_pipeline_settings');
+      expect(parsed.data.stages).toEqual([
+        { key: 'lead', label: 'Lead', role: 'lead', criteria: 'A person worth reaching out to.', agent_can_move_to_stage: true },
+        {
+          key: 'stage_1a2b3c4d',
+          label: 'Discovery booked',
+          role: 'middle',
+          criteria: 'A discovery call is on the calendar.\nBoth sides confirmed the time.',
+          agent_can_move_to_stage: true,
+        },
+        { key: 'opportunity', label: 'Opportunity', role: 'middle', criteria: 'Real buying intent.', agent_can_move_to_stage: true },
+        { key: 'won', label: 'Won', role: 'won', criteria: 'Signed or paid.', agent_can_move_to_stage: true },
+        { key: 'lost', label: 'Lost', role: 'lost', criteria: 'No longer pursuing.', agent_can_move_to_stage: true },
+      ]);
+
+      const human = await runCli(['deal', 'stages'], env);
+      expect(human.code).toBe(0);
+      const lines = human.stdout.split('\n');
+      expect(lines[0]).toMatch(/^label\s+key\s+role\s+criteria$/);
+      expect(human.stdout).toMatch(
+        /Discovery booked\s+stage_1a2b3c4d\s+middle\s+A discovery call is on the calendar\. Both sides confirmed the time\./,
+      );
+      expect(server.toolCalls.every((call) => call.name === 'get_pipeline_settings')).toBe(true);
     } finally {
       await server.close();
       await rm(configDir, { recursive: true, force: true });

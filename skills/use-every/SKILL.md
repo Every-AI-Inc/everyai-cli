@@ -89,13 +89,22 @@ every deal list --search "Acme" --json
 every tool call log_deal_activity --arg deal_id=<deal_id> --arg note="Call completed; client approved scope" --yes --json
 ```
 
-### Won deals require a linked Person or Company
+### Pipeline stages are per workspace
 
-Pipeline stages are `lead`, `opportunity`, `won`, and `lost`:
+Every workspace starts with Lead, Opportunity, Won and Lost, and an admin can add, rename, reorder or retire the stages between Lead and Won/Lost in the Every app (e.g. `Discovery booked`, `Proposal sent`). Never assume the four defaults — list the workspace's stages first:
 
 ```bash
+every deal stages --json
+```
+
+Each stage has a `label` (what the user sees), a stable `key` (`lead`, `won`, `lost`, or a generated `stage_…` for added stages) and a `role` (`lead`, `middle`, `won`, `lost`). `every deal move` and `every deal list --stage` accept a key or a label (case-insensitive); legacy names such as `found`, `qualified`, `closed_won` and `closed_lost` still resolve. A value that matches no current stage fails with `error.code: "stage_not_found"`, and `error.tool_error.available_stages` lists the valid ones — pick from that list, never guess. `create_deal` accepts any open stage (Lead or a middle stage); Won and Lost are reached by moving a deal.
+
+```bash
+every deal move <deal_id> "Proposal sent" --yes --json
 every deal move <deal_id> won --yes --json
 ```
+
+### Won deals require a linked Person or Company
 
 Moving to `won` requires the deal to already be linked to a Person or Company. If the command errors because no party is assigned, assign one first (e.g. via `create_deal`'s `party`, or by updating the deal's target in the Every app), then retry the same command.
 
@@ -178,8 +187,9 @@ Repeat each command with offsets `100`, `200`, and so on until complete. Report 
 Review the pipeline:
 
 ```bash
+every deal stages --json
 every tool call get_pipeline_summary --json
-every deal list --stage opportunity --json
+every deal list --stage <stage key or label> --json
 every tool call view_deal --arg deal_id=<deal_id> --json
 every deal move <deal_id> <stage> --yes --json
 ```
