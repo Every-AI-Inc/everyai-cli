@@ -84,6 +84,21 @@ function overrideClassification(name: string): Classification | undefined {
     };
   }
 
+  const consequentialActions: Record<string, string> = {
+    reject_prospect: 'Rejecting a prospect suppresses the Person across workspace targets.',
+    merge_prospect: 'Merging a prospect changes the selected deal and retires the separate prospect.',
+    end_affiliation: 'Ending an affiliation can invalidate recipients and Portal permissions.',
+  };
+  if (Object.hasOwn(consequentialActions, name)) {
+    return { level: 'destructive', source: 'override', reason: consequentialActions[name] };
+  }
+  if (name === 'approve_prospect' || name === 'create_prospecting_target') {
+    return {
+      level: 'write', source: 'override',
+      reason: 'This action changes the prospecting pipeline and may schedule agent work.',
+    };
+  }
+
   if (name === 'record_payment') {
     return {
       level: 'destructive',

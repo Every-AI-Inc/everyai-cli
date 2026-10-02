@@ -150,9 +150,13 @@ Calendar tools operate on the user's personal calendar. Confirm attendees and ti
 
 `every tool call create_scheduled_task ...` sets up a saved instruction that runs on a cadence (once/daily/weekly/monthly). Results and any notifications always arrive in the Every app (Daily Brief / notifications) and by email if enabled — never back in this CLI session, so don't tell the user to expect output here.
 
-### Prospecting reads
+### Prospecting
 
 Use `list_prospects`, `view_prospect`, and `network_summary` to research the user's network. Treat the returned personal and relationship context as private; these tools do not contact prospects.
+
+When discovery exposes the workspace tools, use `list_workspace_targets` and `list_workspace_prospects` for scoped review. Inspect `every tools describe <name> --json` before calling a new tool; older servers may not expose it. `create_prospecting_target` requires a caller-generated UUID `operation_id`: preserve it and the exact arguments for a retry, and use a new UUID for new work. Leave `possible_match=ask` until the user chooses whether to reuse or create.
+
+`approve_prospect` promotes a prospect and can queue agent work. `merge_prospect` needs an explicitly selected existing deal. `reject_prospect` suppresses the Person across all workspace targets, not just this target. Merge and rejection require explicit authorization and both destructive flags; never use rejection to tidy a list. A pending Every approval is not success: wait for approval, then retry the identical invocation. These tools are available through `every tool call`; a dedicated alias is not required.
 
 ### Stored briefs and reports
 

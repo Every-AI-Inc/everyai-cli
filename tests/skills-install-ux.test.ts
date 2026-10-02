@@ -17,9 +17,9 @@ interface CliResult {
 
 function runCli(args: string[], cwd: string): Promise<CliResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [`--import=${tsxLoader}`, entrypoint, ...args], {
+    const child = spawn(process.execPath, [`--import=${tsxLoader}`, `--import=${pathToFileURL(path.join(repoRoot, 'tests/helpers/isolated-home.mjs')).href}`, entrypoint, ...args], {
       cwd,
-      env: { ...process.env, NO_COLOR: '1' },
+      env: { ...process.env, NO_COLOR: '1', EVERY_TEST_HOME: path.join(cwd, 'isolated-home') },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';

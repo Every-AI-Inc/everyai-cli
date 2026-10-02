@@ -190,6 +190,53 @@ describe('listTools cache', () => {
     return dir;
   }
 
+  it('follows opaque discovery cursors and caches the complete catalog', async () => {
+    const dir = await tempConfig();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(jsonRpc({ tools: [{ name: 'list_people' }], nextCursor: 'opaque/next' })))
+      .mockResolvedValueOnce(new Response(jsonRpc({ tools: [{ name: 'approve_prospect' }] })));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const expected = [{ name: 'list_people' }, { name: 'approve_prospect' }];
+      expect(await listTools('https://mcp.example.test', 'token')).toEqual(expected);
+      expect(JSON.parse(fetchMock.mock.calls[1][1].body).params).toEqual({ cursor: 'opaque/next' });
+      expect(await listTools('https://mcp.example.test', 'token')).toEqual(expected);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+
+  it.each([
+    { tools: [{ name: 'second' }], nextCursor: 'same' },
+    { tools: [{ name: 'second' }], nextCursor: 42 },
+    { tools: [{ name: 'second' }], nextCursor: '' },
+    { tools: [{ name: 'second' }], nextCursor: null },
+    { tools: [{ name: 'first' }] },
+    { tools: 'invalid' },
+  ])('rejects broken continuation without caching partial discovery %#', async (second) => {
+    const dir = await tempConfig();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(jsonRpc({ tools: [{ name: 'first' }], nextCursor: 'same' })))
+      .mockResolvedValueOnce(new Response(jsonRpc(second)))
+      .mockResolvedValueOnce(new Response(jsonRpc({ tools: [{ name: 'recovered' }] })));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await expect(listTools('https://mcp.example.test', 'token')).rejects.toThrow();
+      expect(await listTools('https://mcp.example.test', 'token')).toEqual([{ name: 'recovered' }]);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+
+  it('bounds endless unique cursors without caching an incomplete catalog', async () => {
+    const dir = await tempConfig();
+    let page = 0;
+    const fetchMock = vi.fn(async () => new Response(jsonRpc({ tools: [], nextCursor: String(++page) })));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await expect(listTools('https://mcp.example.test', 'token')).rejects.toThrow('page limit');
+      expect(fetchMock).toHaveBeenCalledTimes(100);
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+
   it('honors a fresh cache and writes cache files with mode 0600', async () => {
     const dir = await tempConfig();
     const fetchMock = vi.fn(async () => {

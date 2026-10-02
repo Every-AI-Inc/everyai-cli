@@ -39,6 +39,24 @@ function tool(name: string): FixtureTool {
 }
 
 describe('policy classification', () => {
+  it.each(['reject_prospect', 'merge_prospect', 'end_affiliation'])(
+    'requires destructive permission for %s even with incorrect read hints', (name) => {
+      const classification = classify({ name, annotations: { readOnlyHint: true, destructiveHint: false } });
+      expect(classification).toMatchObject({ level: 'destructive', source: 'override' });
+      expect(requirementFor(classification.level, { interactive: false, yes: true }).allowed).toBe(false);
+      expect(requirementFor(classification.level, { interactive: false, yes: true, allowDestructive: true }).allowed).toBe(true);
+      expect(requirementFor(classification.level, { interactive: false, yes: true, allowDestructive: true, readOnlyMode: true }).allowed).toBe(false);
+    },
+  );
+
+  it.each(['approve_prospect', 'create_prospecting_target'])(
+    'requires write permission for %s without annotations', (name) => {
+      expect(classify({ name })).toMatchObject({ level: 'write', source: 'override' });
+      expect(requirementFor('write', { interactive: false }).allowed).toBe(false);
+      expect(requirementFor('write', { interactive: false, yes: true }).allowed).toBe(true);
+    },
+  );
+
   it('covers the full snapshotted live tool registry', () => {
     expect(tools).toHaveLength(98);
   });

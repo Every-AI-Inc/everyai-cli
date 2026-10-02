@@ -308,13 +308,37 @@ export async function listTools(
     if (cached) return cached;
   }
 
-  const result = await mcpCall<{ tools?: unknown }>(baseUrl, token, 'tools/list', {});
-  if (!isToolArray(result?.tools)) {
-    throw new CliError('MCP tools/list returned an invalid tool registry', ExitCode.GENERIC, 'generic');
+  const tools: McpTool[] = [];
+  const names = new Set<string>();
+  const cursors = new Set<string>();
+  let cursor: string | undefined;
+  // Bound discovery and cache only a complete catalog. A partial list hides
+  // capabilities and can leave clients using stale permission hints.
+  for (let page = 0; page < 100; page++) {
+    const result = await mcpCall<{ tools?: unknown; nextCursor?: unknown }>(
+      baseUrl, token, 'tools/list', cursor === undefined ? {} : { cursor },
+    );
+    if (!isToolArray(result?.tools)) {
+      throw new CliError('MCP tools/list returned an invalid tool registry', ExitCode.GENERIC, 'generic');
+    }
+    for (const tool of result.tools) {
+      if (names.has(tool.name)) {
+        throw new CliError('MCP tool registry contains duplicate names; retry discovery.', ExitCode.NETWORK, 'network');
+      }
+      names.add(tool.name);
+      tools.push(tool);
+    }
+    if (result.nextCursor === undefined) {
+      await writeToolCache(baseUrl, tools);
+      return tools;
+    }
+    if (typeof result.nextCursor !== 'string' || !result.nextCursor || cursors.has(result.nextCursor)) {
+      throw new CliError('MCP tool registry returned an invalid or repeated cursor.', ExitCode.NETWORK, 'network');
+    }
+    cursor = result.nextCursor;
+    cursors.add(cursor);
   }
-
-  await writeToolCache(baseUrl, result.tools);
-  return result.tools;
+  throw new CliError('MCP tool discovery exceeded its page limit; no partial catalog was cached.', ExitCode.NETWORK, 'network');
 }
 
 export async function callTool(
