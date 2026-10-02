@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { getOrRegisterClient } from '../src/lib/auth/dcr';
-import { clearDiscoveryCache, discoverOAuth } from '../src/lib/auth/discovery';
+import { canonicalResource, clearDiscoveryCache, discoverOAuth } from '../src/lib/auth/discovery';
 import { exchangeAuthorizationCode, loginFlow } from '../src/lib/auth/flow';
 import { createPkceChallenge, createPkcePair } from '../src/lib/auth/pkce';
 import {
@@ -72,7 +72,7 @@ interface MockResponse {
 let fallbackPort = 32_000;
 
 async function createMockOAuthServer(
-  opts: { userinfoStatus?: number } = {},
+  opts: { userinfoStatus?: number; resourcePath?: string } = {},
 ): Promise<MockOAuthServer> {
   const registrations: Array<Record<string, unknown>> = [];
   const tokenRequests: URLSearchParams[] = [];
@@ -90,7 +90,13 @@ async function createMockOAuthServer(
   ): MockResponse {
     if (method === 'GET' && pathname === '/.well-known/oauth-protected-resource') {
       discoveryRequests.push(pathname);
-      return { status: 200, body: { authorization_servers: [baseUrl] } };
+      return {
+        status: 200,
+        body: {
+          ...(opts.resourcePath === undefined ? {} : { resource: `${baseUrl}${opts.resourcePath}` }),
+          authorization_servers: [baseUrl],
+        },
+      };
     }
 
     if (method === 'GET' && pathname === '/.well-known/oauth-authorization-server') {
@@ -426,6 +432,61 @@ describe('authorization-response issuer validation (RFC 9207)', () => {
     await expect(loginWithCallbackIss(() => undefined)).resolves.toMatchObject({
       refresh_token: 'refresh-original',
     });
+  });
+});
+
+describe('RFC 8707 resource indicator', () => {
+  it('sends the protected-resource metadata resource on authorize, code exchange and refresh', async () => {
+    const server = await createMockOAuthServer({ resourcePath: '/mcp' });
+    const dir = await tempDir();
+    process.env.EVERY_CONFIG_DIR = dir;
+    const expected = `${server.baseUrl}/mcp`;
+
+    try {
+      const transport = mockOAuthCallback();
+      let authorizationUrl = '';
+      const tokens = await loginFlow({
+        baseUrl: server.baseUrl,
+        createCallbackServer: transport.createServer,
+        openBrowser: async (url) => {
+          authorizationUrl = url;
+          const authorize = new URL(url);
+          const callback = new URL(authorize.searchParams.get('redirect_uri') ?? '');
+          callback.searchParams.set('code', 'callback-code');
+          callback.searchParams.set('state', authorize.searchParams.get('state') ?? '');
+          await transport.visit(callback);
+        },
+      });
+
+      const authorize = new URL(authorizationUrl);
+      expect(authorize.searchParams.get('resource')).toBe(expected);
+      // Discovery and PKCE stay as they were.
+      expect(authorize.searchParams.get('code_challenge_method')).toBe('S256');
+      expect(server.tokenRequests[0].get('grant_type')).toBe('authorization_code');
+      expect(server.tokenRequests[0].get('resource')).toBe(expected);
+
+      const store = new FileStore(path.join(dir, 'tokens.json'));
+      const environmentKey = environmentKeyForBaseUrl(server.baseUrl);
+      await store.set(environmentKey, { ...tokens, expires_at: 1 });
+      await getToken({ baseUrl: server.baseUrl, store });
+
+      expect(server.tokenRequests[1].get('grant_type')).toBe('refresh_token');
+      expect(server.tokenRequests[1].get('resource')).toBe(expected);
+    } finally {
+      await server.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['names no resource', undefined, 'https://mcp.example.test'],
+    ['names a resource on another origin', 'https://elsewhere.example.test/mcp', 'https://mcp.example.test'],
+    ['names an unparseable resource', 'not a url', 'https://mcp.example.test'],
+    ['names a resource on its own origin', 'https://mcp.example.test/mcp', 'https://mcp.example.test/mcp'],
+  ])('uses the MCP base URL when metadata %s', (_case, resource, expected) => {
+    expect(
+      canonicalResource('https://mcp.example.test/', { resource, authorization_servers: ['https://auth'] }),
+    ).toBe(expected);
   });
 });
 

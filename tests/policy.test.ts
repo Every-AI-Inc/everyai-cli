@@ -227,6 +227,21 @@ describe('policy classification', () => {
     expect(classify({ name: 'get_some_future_report' }).level).toBe('write');
   });
 
+  it('pins the signup tools: status is a read, complete is a write that never needs --allow-destructive', () => {
+    const signupTools = JSON.parse(
+      readFileSync(path.join(path.dirname(fixturePath), 'signup-tools.json'), 'utf8'),
+    ) as Array<{ name: string; annotations: Record<string, boolean> }>;
+    const byName = Object.fromEntries(signupTools.map((entry) => [entry.name, entry]));
+
+    expect(classify(byName.get_signup_status)).toMatchObject({ level: 'read', source: 'override' });
+    expect(classify(byName.complete_signup)).toMatchObject({ level: 'write', source: 'override' });
+    // Annotation drift in either direction cannot move them.
+    expect(classify({ name: 'complete_signup', destructive: true }).level).toBe('write');
+    expect(classify({ name: 'complete_signup', readOnly: true }).level).toBe('write');
+    expect(classify({ name: 'get_signup_status', readOnly: false }).level).toBe('read');
+    expect(requirementFor('write', { interactive: false, yes: true })).toEqual({ allowed: true });
+  });
+
   it('explains high-risk tools correctly without annotation metadata', () => {
     expect(classify({ name: 'send_email' })).toMatchObject({ level: 'destructive', source: 'override' });
     expect(classify({ name: 'draft_email' })).toMatchObject({ level: 'write', source: 'annotation' });

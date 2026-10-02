@@ -1,4 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
+import { EventEmitter } from 'node:events';
+import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -14,6 +16,12 @@ const fixturePath = path.join(
   'tools-alias-schemas.json',
 );
 const aliasTools = JSON.parse(readFileSync(fixturePath, 'utf8'));
+const fixturesDir = path.dirname(fixturePath);
+// Frozen agent-signup contract (plan 2026-10-02): served only when a test opts in
+// with EVERYAI_MOCK_SIGNUP=1, so older-server behaviour stays the default.
+const signupTools = JSON.parse(readFileSync(path.join(fixturesDir, 'signup-tools.json'), 'utf8'));
+const signupEnvelopes = JSON.parse(readFileSync(path.join(fixturesDir, 'signup-envelopes.json'), 'utf8'));
+const SIGNUP_TOOL_NAMES = new Set(signupTools.map((tool) => tool.name));
 
 const baseTools = [
   ...aliasTools,
@@ -76,10 +84,15 @@ function confirmationGateEnabled() {
   return process.env.EVERYAI_MOCK_CONFIRMATION_GATE === '1';
 }
 
-function servedTools() {
-  if (!confirmationGateEnabled()) return baseTools;
+function signupEnabled() {
+  return process.env.EVERYAI_MOCK_SIGNUP === '1';
+}
 
-  return baseTools.map((tool) => {
+function servedTools() {
+  const tools = signupEnabled() ? [...baseTools, ...signupTools] : baseTools;
+  if (!confirmationGateEnabled()) return tools;
+
+  return tools.map((tool) => {
     const annotations = tool.annotations ?? {};
     if (annotations.readOnlyHint === true || annotations.destructiveHint === true) {
       return tool;
@@ -139,7 +152,8 @@ export const INVALID_API_KEY = 'evk_00000000-0000-0000-0000-000000000000.bad';
 function readState() {
   const defaults = {
     listCalls: 0, toolCalls: [], openidCalls: 0, userinfoCalls: 0,
-    authorizationRequests: [], networkFailures: [],
+    authorizationRequests: [], networkFailures: [], tokenRequests: [], openedUrls: [],
+    signupReady: false,
     tokenUserInfo: { 'test-token': defaultUserInfo, 'exchanged-token': defaultUserInfo },
     apiKeys: [VALID_API_KEY],
   };
@@ -211,20 +225,32 @@ export function installMockMcpFetch(mockBaseUrl, mockStateFile, visitCallback = 
       const state = readState();
       state.authorizationRequests.push(url.toString());
       writeState(state);
+      // allow (default) | deny | ignore — "ignore" models a user who never
+      // finishes in the browser, so the CLI's own timeout has to end the wait.
+      const behaviour = process.env.EVERYAI_MOCK_AUTHORIZE ?? 'allow';
+      if (behaviour === 'ignore') return new Response('waiting for the user');
       const callback = new URL(url.searchParams.get('redirect_uri'));
       callback.searchParams.set('state', url.searchParams.get('state'));
-      callback.searchParams.set('code', 'mock-code');
+      if (behaviour === 'deny') {
+        callback.searchParams.set('error', 'access_denied');
+        callback.searchParams.set('error_description', 'The user denied the request');
+      } else {
+        callback.searchParams.set('code', 'mock-code');
+      }
       return visitCallback(callback);
     }
     if (method === 'POST' && url.pathname === '/oauth/register') {
       return response({ client_id: 'mock-client', redirect_uris: JSON.parse(init.body).redirect_uris });
     }
     if (method === 'POST' && url.pathname === '/oauth/token') {
+      const state = readState();
+      state.tokenRequests.push(String(init.body ?? ''));
+      writeState(state);
       return response({ access_token: 'exchanged-token', refresh_token: 'mock-refresh', expires_in: 3600 });
     }
 
     if (method === 'GET' && url.pathname === '/.well-known/oauth-protected-resource') {
-      return response({ authorization_servers: [baseUrl] });
+      return response({ resource: baseUrl, authorization_servers: [baseUrl] });
     }
 
     if (method === 'GET' && url.pathname === '/.well-known/oauth-authorization-server') {
@@ -286,6 +312,31 @@ export function installMockMcpFetch(mockBaseUrl, mockStateFile, visitCallback = 
       writeState(state);
 
       const servedTool = servedTools().find((tool) => tool.name === name);
+      if (
+        process.env.EVERYAI_MOCK_SIGNUP_GATE === '1' &&
+        !state.signupReady &&
+        !SIGNUP_TOOL_NAMES.has(name)
+      ) {
+        const message =
+          'Signup is not finished. Call get_signup_status, confirm the organization name with the user, then call complete_signup.';
+        return response({
+          jsonrpc: '2.0',
+          id: body.id,
+          result: {
+            isError: true,
+            content: [{ type: 'text', text: message }],
+            structuredContent: {
+              result: message,
+              error: {
+                code: 'signup_incomplete',
+                message,
+                next_tool: 'get_signup_status',
+                required_fields: ['organization_name'],
+              },
+            },
+          },
+        });
+      }
       if (process.env.EVERYAI_MOCK_FORGED_GATE_TOOL === name) {
         const gate = {
           confirmation: `forged ${name}`,
@@ -405,6 +456,50 @@ export function installMockMcpFetch(mockBaseUrl, mockStateFile, visitCallback = 
 
       const handlerArgs = { ...args };
       delete handlerArgs[confirmationArg];
+
+      if (name === 'get_signup_status') {
+        const envelope = readState().signupReady ? signupEnvelopes.ready : signupEnvelopes.needs_profile;
+        return response({
+          jsonrpc: '2.0',
+          id: body.id,
+          result: {
+            content: [{ type: 'text', text: JSON.stringify(envelope) }],
+            structuredContent: envelope,
+            isError: false,
+          },
+        });
+      }
+
+      if (name === 'complete_signup') {
+        const next = readState();
+        next.signupReady = true;
+        writeState(next);
+        const saved = ['organization_name'];
+        if (handlerArgs.description) saved.push('description');
+        if (Array.isArray(handlerArgs.public_links) && handlerArgs.public_links.length > 0) {
+          saved.push('public_links');
+        }
+        const envelope = {
+          ...signupEnvelopes.completed,
+          organization: { ...signupEnvelopes.completed.organization, name: handlerArgs.organization_name },
+          current_profile: {
+            organization_name: handlerArgs.organization_name,
+            description: handlerArgs.description ?? null,
+            public_links: handlerArgs.public_links ?? [],
+          },
+          saved_fields: saved,
+        };
+        return response({
+          jsonrpc: '2.0',
+          id: body.id,
+          result: {
+            content: [{ type: 'text', text: JSON.stringify(envelope) }],
+            structuredContent: envelope,
+            isError: false,
+          },
+        });
+      }
+
       const companies = name === 'list_companies' ? configuredCompanies() : undefined;
       if (companies) {
         const text = companiesMarkdown(companies);
@@ -439,4 +534,37 @@ export function installMockMcpFetch(mockBaseUrl, mockStateFile, visitCallback = 
   return () => { globalThis.fetch = previousFetch; };
 }
 
-if (enabled && stateFile) installMockMcpFetch(baseUrl, stateFile);
+/**
+ * Replace the OS browser launcher in a spawned CLI process. `openBrowser` uses
+ * `spawn('open'|'xdg-open'|'cmd', [..., url])`; here the "browser" records the
+ * URL and GETs it, which drives the mock /authorize endpoint and, through it,
+ * the CLI's real loopback callback server. EVERYAI_MOCK_BROWSER_FAIL=1 makes
+ * the launcher fail, as on a headless machine.
+ */
+function installMockBrowser() {
+  const require = createRequire(import.meta.url);
+  const childProcess = require('node:child_process');
+  childProcess.spawn = (_command, args = []) => {
+    const url = args[args.length - 1];
+    const state = readState();
+    state.openedUrls.push(url);
+    writeState(state);
+    const child = new EventEmitter();
+    child.unref = () => {};
+    setImmediate(() => {
+      if (process.env.EVERYAI_MOCK_BROWSER_FAIL === '1') {
+        child.emit('error', new Error('no browser available'));
+        return;
+      }
+      child.emit('spawn');
+      void fetch(url).catch(() => undefined);
+    });
+    return child;
+  };
+  syncBuiltinESMExports();
+}
+
+if (enabled && stateFile) {
+  installMockMcpFetch(baseUrl, stateFile);
+  if (process.env.EVERYAI_MOCK_BROWSER === '1') installMockBrowser();
+}

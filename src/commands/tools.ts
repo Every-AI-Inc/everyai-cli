@@ -58,6 +58,20 @@ export interface ToolCallData {
 
 type DataAugmenter = (data: ToolCallData) => ToolCallData | Promise<ToolCallData>;
 
+export interface InvokeHooks {
+  /** Error to raise when the server does not list the tool (default: generic not_found). */
+  missingTool?: (name: string) => CliError;
+}
+
+/**
+ * Next steps for a tool refused because the account's signup is unfinished
+ * (`signup_incomplete`). Older CLIs show only the server's text; this one names
+ * the commands that finish it.
+ */
+export const SIGNUP_INCOMPLETE_GUIDANCE =
+  'Finish signup first: run `every signup status` to see what is needed, confirm the ' +
+  'organization name with the user, then run `every signup complete --org-name "<name>" --yes`.';
+
 export type ToolExecutionOptions = Omit<ToolCallOptions, 'args' | 'arg'>;
 
 function emitCommand<T>(data: T, human: string, opts: BaseCommandOptions): void {
@@ -111,9 +125,12 @@ function toolsListHuman(tools: ClassifiedTool[]): string {
   return lines.join('\n');
 }
 
-function findTool(tools: McpTool[], name: string): McpTool {
+function findTool(tools: McpTool[], name: string, hooks: InvokeHooks = {}): McpTool {
   const tool = tools.find((candidate) => candidate.name === name);
-  if (!tool) throw new CliError(`Tool not found: ${name}`, ExitCode.NOT_FOUND, 'not_found');
+  if (!tool) {
+    throw hooks.missingTool?.(name) ??
+      new CliError(`Tool not found: ${name}`, ExitCode.NOT_FOUND, 'not_found');
+  }
   return tool;
 }
 
@@ -334,11 +351,12 @@ export async function invokeToolCall(
   name: string,
   opts: ToolExecutionOptions = {},
   argsFactory: ArgsFactory = async () => ({}),
+  hooks: InvokeHooks = {},
 ): Promise<ToolCallData> {
   const baseUrl = resolveBaseUrl({ staging: opts.staging });
   const token = await getToken({ baseUrl });
   const tools = await listTools(baseUrl, token, { noCache: opts.noCache });
-  const tool = findTool(tools, name);
+  const tool = findTool(tools, name, hooks);
   const classification = classify(tool);
   const interactive = Boolean(process.stdin.isTTY && process.stderr.isTTY);
   const readOnlyMode = opts.readOnly === true || process.env.EVERY_READ_ONLY === '1';
@@ -427,6 +445,12 @@ export async function invokeToolCall(
     // under error.tool_error; older servers send none, so this falls back to
     // 'generic' and behaves exactly as before.
     const toolError = structuredToolError(result.structuredContent);
+    if (toolError?.code === 'signup_incomplete') {
+      throw new CliError(`${rawMessage}\n${SIGNUP_INCOMPLETE_GUIDANCE}`, ExitCode.GENERIC, toolError.code, {
+        tool_error: toolError,
+        next_steps: ['every signup status --json', 'every signup complete --org-name "<name>" --yes --json'],
+      });
+    }
     if (toolError) {
       throw new CliError(rawMessage, ExitCode.GENERIC, toolError.code, { tool_error: toolError });
     }

@@ -302,6 +302,7 @@ async function refreshToken(
     grant_type: 'refresh_token',
     refresh_token: existing.refresh_token ?? '',
     client_id: existing.client_id,
+    resource: discovery.resource,
   });
 
   let response: TokenResponse;

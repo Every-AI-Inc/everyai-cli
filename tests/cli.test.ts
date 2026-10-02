@@ -239,14 +239,27 @@ describe('CLI contract', () => {
     expect((parsed.data as { help: string }).help).toContain('Usage: every');
   });
 
-  it('documents account creation in login help', async () => {
+  it('points new users from login help to every signup', async () => {
     const result = await runCli(['login', '--help']);
 
     expect(result.code).toBe(0);
     expect(result.stdout + result.stderr).toContain('--create-account');
-    expect(result.stdout + result.stderr).toContain(
-      'Log in (or create an account) with browser-based OAuth and store tokens locally',
-    );
+    expect(result.stdout + result.stderr).toContain('deprecated alias for every signup');
+    expect(result.stdout + result.stderr).toContain('new users: every signup');
+  });
+
+  it('documents the signup commands in help and offline docs', async () => {
+    const help = await runCli(['signup', '--help']);
+    expect(help.code).toBe(0);
+    expect(help.stdout).toContain('no TTY needed');
+    expect(help.stdout).toContain('--timeout <seconds>');
+    expect(help.stdout).toContain('status');
+    expect(help.stdout).toContain('complete');
+
+    const docs = await runCli(['docs', '--json']);
+    const commands = (parseJsonStdout(docs.stdout).data as { commands: string }).commands;
+    expect(commands).toContain('every signup --timeout <seconds>');
+    expect(commands).toContain('every signup complete --org-name <name>');
   });
 
   it('keeps non-TTY bare invocation on the plain help path', async () => {

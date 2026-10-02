@@ -13,6 +13,11 @@ import {
 } from './commands/auth.js';
 import { policyExplainCommand } from './commands/policy.js';
 import {
+  signupCommand,
+  signupCompleteCommand,
+  signupStatusCommand,
+} from './commands/signup.js';
+import {
   toolCallCommand,
   toolsDescribeCommand,
   toolsListCommand,
@@ -86,11 +91,63 @@ withGlobalOptions(
   await docsCommand(program, { json: opts.json, staging: opts.staging });
 });
 
+const signup = withGlobalOptions(
+  program
+    .command('signup')
+    .allowExcessArguments(false)
+    .description('Create an Every account or sign in via one browser step; no TTY needed')
+    .option('--timeout <seconds>', 'how long to wait for the browser authorization', '300')
+    .addHelpText(
+      'after',
+      [
+        '',
+        'With --json, stdout is NDJSON: an authorization_required event with the URL,',
+        'a waiting_for_authorization event, then the result envelope as the last line.',
+        '',
+        'Then finish signup:',
+        '  every signup complete --org-name "Acme Studio" --yes --json',
+        '',
+      ].join('\n'),
+    ),
+).action(async (_options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await signupCommand({ json: opts.json, staging: opts.staging, timeout: opts.timeout });
+});
+
+withGlobalOptions(
+  signup.command('status').description('Show signup status and the profile still needed'),
+).action(async (_options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await signupStatusCommand({ json: opts.json, staging: opts.staging });
+});
+
+withGlobalOptions(
+  signup
+    .command('complete')
+    .description('Finish signup with the organization profile the user confirmed')
+    .requiredOption('--org-name <name>', 'organization name the user confirmed (required)')
+    .option('--description <text>', 'short description of the business')
+    .option('--link <url>', 'public https link (website, LinkedIn, ...); repeatable', collectOption, [])
+    .option('--yes', 'confirm the write (required when non-interactive)')
+    .option('--read-only', 'deny the write (for automation guards)'),
+).action(async (_options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await signupCompleteCommand({
+    json: opts.json,
+    staging: opts.staging,
+    orgName: opts.orgName,
+    description: opts.description,
+    link: opts.link,
+    yes: opts.yes,
+    readOnly: opts.readOnly,
+  });
+});
+
 withGlobalOptions(
   program
     .command('login')
-    .description('Log in (or create an account) with browser-based OAuth and store tokens locally')
-    .option('--create-account', 'create a new Every account, then connect the CLI')
+    .description('Log in with browser OAuth and store tokens (new users: every signup)')
+    .option('--create-account', 'deprecated alias for every signup')
     .option('--org <id|slug|name>', 'verify the workspace selected during login'),
 ).action(async (_options: unknown, command: Command) => {
   const opts = command.optsWithGlobals();
@@ -506,7 +563,7 @@ async function maybeRunFirstRunMenu(): Promise<boolean> {
     staging: program.opts().staging,
     showHelp: () => program.outputHelp(),
     login: () => loginCommand({ staging: program.opts().staging, skipMenu: true }),
-    createAccount: () => loginCommand({ staging: program.opts().staging, createAccount: true }),
+    createAccount: () => signupCommand({ staging: program.opts().staging }),
   });
   return true;
 }

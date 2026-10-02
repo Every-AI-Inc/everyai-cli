@@ -153,4 +153,19 @@ describe('use-every skill contract', () => {
     expect(text).toMatch(/paginate/i);
     expect(text).toContain('server-enforced read-only');
   });
+
+  it('teaches the agent-run signup flow instead of handing login to the user', () => {
+    const text = readFileSync(skillPath, 'utf8');
+
+    expect(text).toMatch(/^metadata:\n {2}every-skill-version: "\d+"$/m);
+    expect(text).not.toContain('you cannot complete it for them');
+    expect(text).toContain('every signup --json');
+    expect(text).toMatch(/at least five minutes, or in the background/);
+    expect(text).toMatch(/Never ask for passwords, one-time codes, or tokens/);
+    expect(text).toContain('profile_suggestions');
+    expect(text).toMatch(/unverified candidates/);
+    expect(text).toContain('every signup complete --org-name');
+    expect(text).toContain('signup_incomplete');
+    expect(text).toMatch(/background setup/i);
+  });
 });
