@@ -157,6 +157,47 @@ function targetIdFor(label: string): string {
   return `00000000-0000-4000-8000-${hex}`;
 }
 
+describe('cold-start signup eval', () => {
+  it('signs a brand-new user up in two agent invocations without a TTY', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const env = mockEnv(server, configDir, {
+        EVERY_TOKEN: '',
+        EVERYAI_MOCK_BROWSER: '1',
+        EVERYAI_MOCK_SIGNUP: '1',
+        EVERYAI_MOCK_SIGNUP_GATE: '1',
+        EVERYAI_MOCK_CONFIRMATION_GATE: '1',
+      });
+
+      // Before signup finishes, other tools are refused with the stable code.
+      const signup = await runCli(['signup', '--json'], env);
+      const gated = await runCli(['tool', 'call', 'list_invoices', '--json'], env);
+      const complete = await runCli(
+        ['signup', 'complete', '--org-name', 'Acme Studio', '--yes', '--json'],
+        env,
+      );
+      const after = await runCli(['tool', 'call', 'list_invoices', '--json'], env);
+
+      // The documented agent path is exactly `signup` then `signup complete`.
+      expect(signup.code, signup.stderr).toBe(0);
+      const signupLines = signup.stdout.trim().split('\n').map((line) => JSON.parse(line));
+      expect(signupLines[0]).toMatchObject({ event: 'authorization_required' });
+      expect(signupLines.at(-1)).toMatchObject({ ok: true, data: { signup_status: 'needs_profile' } });
+      expect(gated.code).toBe(1);
+      expect(parseJsonStdout(gated.stdout)).toMatchObject({ error: { code: 'signup_incomplete' } });
+      expect(complete.code, complete.stderr).toBe(0);
+      expect(parseJsonStdout(complete.stdout)).toMatchObject({ ok: true, data: { account_ready: true } });
+      expect(after.code, after.stderr).toBe(0);
+
+      expect(callsNamed(server.toolCalls, 'complete_signup')).toHaveLength(2);
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('cold-start invoice eval', () => {
   it('keeps the documented agent path within the round-trip budget', async () => {
     const server = await createMockMcpServer();

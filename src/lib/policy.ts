@@ -149,6 +149,27 @@ function overrideClassification(name: string): Classification | undefined {
     };
   }
 
+  // Agent signup tools (2026-10-02). complete_signup commits the organization
+  // name the user confirmed: an ordinary idempotent write that must never need
+  // --allow-destructive. get_signup_status only reports state; pinning it keeps
+  // `every signup` usable without --yes even if its annotations drift.
+  if (name === 'complete_signup') {
+    return {
+      level: 'write',
+      source: 'override',
+      reason:
+        'complete_signup saves the confirmed organization profile and finishes signup; an idempotent write, never destructive.',
+    };
+  }
+
+  if (name === 'get_signup_status') {
+    return {
+      level: 'read',
+      source: 'override',
+      reason: 'get_signup_status reports signup state and unverified profile suggestions; it changes no records.',
+    };
+  }
+
   return undefined;
 }
 

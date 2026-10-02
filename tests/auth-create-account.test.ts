@@ -1,21 +1,21 @@
-import { PassThrough, Readable, Writable } from 'node:stream';
+import { PassThrough, Writable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  createAccountFlow,
-  loginCommand,
-} from '../src/commands/auth';
+import { loginCommand } from '../src/commands/auth';
+import { signupCommand } from '../src/commands/signup';
 import { loginFlow, openBrowser } from '../src/lib/auth/flow';
 import {
   createTokenStore,
   getAuthStatus,
   StoredTokenSet,
 } from '../src/lib/auth/tokens';
-import { CliError } from '../src/lib/errors';
-import { ExitCode } from '../src/lib/exit-codes';
 
 vi.mock('../src/lib/auth/flow', () => ({
   loginFlow: vi.fn(),
   openBrowser: vi.fn(),
+}));
+
+vi.mock('../src/commands/signup', () => ({
+  signupCommand: vi.fn(async () => undefined),
 }));
 
 vi.mock('../src/lib/auth/tokens', async () => {
@@ -39,16 +39,9 @@ vi.mock('../src/lib/hints', async () => {
   };
 });
 
-type TtyReadable = Readable & { isTTY: boolean };
 type TtyWritable = Writable & { isTTY: boolean };
 
 const ORIGINAL_EVERY_TOKEN = process.env.EVERY_TOKEN;
-
-function ttyInput(text: string, isTTY = true): TtyReadable {
-  const stream = Readable.from([text]) as TtyReadable;
-  stream.isTTY = isTTY;
-  return stream;
-}
 
 function outputCapture(isTTY = true): {
   output: TtyWritable;
@@ -104,7 +97,7 @@ beforeEach(() => {
   delete process.env.EVERY_TOKEN;
   vi.clearAllMocks();
   vi.mocked(loginFlow).mockResolvedValue(tokenSet());
-  vi.mocked(openBrowser).mockResolvedValue();
+  vi.mocked(openBrowser).mockResolvedValue(true);
   vi.mocked(createTokenStore).mockResolvedValue({
     backend: 'file',
     get: vi.fn(),
@@ -117,6 +110,7 @@ beforeEach(() => {
     base_url: 'https://admin-mcp.every.ai',
     storage_backend: 'file',
     every_token: false,
+    auth_method: null,
     issuer: null,
     expires_at: null,
     expires_in_seconds: null,
@@ -131,54 +125,29 @@ afterEach(() => {
   else process.env.EVERY_TOKEN = ORIGINAL_EVERY_TOKEN;
 });
 
-describe('create-account flow', () => {
-  it('opens production signup, prompts, then completes and stores the browser login', async () => {
-    const stdout = outputCapture(false);
-    const stderr = outputCapture();
-    const openSignup = vi.fn(async () => undefined);
+describe('login --create-account (deprecated alias for every signup)', () => {
+  it.each([
+    ['without any TTY', false, false],
+    ['in an interactive terminal', true, true],
+  ])('runs signup %s and never opens the web sign-up page', async (_label, stdinTTY, stdoutTTY) => {
+    const io = mockProcessIo(stdinTTY, stdoutTTY);
 
-    await createAccountFlow({
-      input: ttyInput('\n'),
-      output: stdout.output,
-      errorOutput: stderr.output,
-      openBrowser: openSignup,
-    });
+    await loginCommand({ createAccount: true, staging: true });
 
-    expect(openSignup).toHaveBeenCalledWith('https://app.every.ai/sign-up');
-    expect(stderr.text()).toContain('Opening the Every sign-up page:\n  https://app.every.ai/sign-up');
-    expect(stderr.text()).toContain('Create your account and set up your workspace in the browser.');
-    expect(stderr.text()).toContain("When you're done, press Enter to connect your terminal... ");
-    expect(openSignup.mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(loginFlow).mock.invocationCallOrder[0],
-    );
-    expect(loginFlow).toHaveBeenCalledWith(
-      expect.objectContaining({ baseUrl: 'https://admin-mcp.every.ai' }),
-    );
-    expect(setToken).toHaveBeenCalledWith('prod', expect.objectContaining({ issuer: tokenSet().issuer }));
-    expect(stdout.text()).toContain('Logged in as person@example.com');
+    expect(signupCommand).toHaveBeenCalledWith({ json: undefined, staging: true });
+    expect(loginFlow).not.toHaveBeenCalled();
+    expect(openBrowser).not.toHaveBeenCalled();
+    expect(io.stderr.text()).toContain('`every login --create-account` is deprecated; use `every signup`.');
   });
 
-  it('uses the staging signup URL and waits before starting login', async () => {
-    const calls: string[] = [];
-    const runLogin = vi.fn(async () => {
-      calls.push('login');
-    });
-    const openSignup = vi.fn(async () => {
-      calls.push('signup');
-    });
+  it('keeps the deprecation note out of --json runs', async () => {
+    const io = mockProcessIo(false, false);
 
-    await createAccountFlow({
-      staging: true,
-      input: ttyInput('\n'),
-      output: outputCapture(false).output,
-      errorOutput: outputCapture().output,
-      openBrowser: openSignup,
-      runLogin,
-    });
+    await loginCommand({ createAccount: true, json: true });
 
-    expect(openSignup).toHaveBeenCalledWith('https://app.staging.every.ai/sign-up');
-    expect(runLogin).toHaveBeenCalledOnce();
-    expect(calls).toEqual(['signup', 'login']);
+    expect(signupCommand).toHaveBeenCalledWith({ json: true, staging: undefined });
+    expect(io.stderr.text()).toBe('');
+    expect(io.stdout.text()).toBe('');
   });
 
   it('EVERY_TOKEN wins over create-account without opening a browser or prompting', async () => {
@@ -187,46 +156,18 @@ describe('create-account flow', () => {
 
     await loginCommand({ createAccount: true });
 
+    expect(signupCommand).not.toHaveBeenCalled();
     expect(openBrowser).not.toHaveBeenCalled();
     expect(loginFlow).not.toHaveBeenCalled();
     expect(getAuthStatus).not.toHaveBeenCalled();
     expect(io.stderr.text()).toBe('');
     expect(io.stdout.text()).toContain('EVERY_TOKEN is set; login is unnecessary.');
   });
-
-  it('keeps the auth error contract for create-account without a stdout TTY', async () => {
-    mockProcessIo(true, false);
-
-    await expect(loginCommand({ createAccount: true })).rejects.toMatchObject<CliError>({
-      code: 'auth',
-      exitCode: ExitCode.AUTH,
-      message: 'login requires a browser; set EVERY_TOKEN for headless use',
-    });
-
-    expect(openBrowser).not.toHaveBeenCalled();
-    expect(loginFlow).not.toHaveBeenCalled();
-  });
-
-  it('fails fast for create-account without a stdin TTY instead of hanging at the prompt', async () => {
-    mockProcessIo(false, true);
-
-    await expect(loginCommand({ createAccount: true })).rejects.toMatchObject<CliError>({
-      code: 'auth',
-      exitCode: ExitCode.AUTH,
-      message: 'create-account requires an interactive terminal; set EVERY_TOKEN for headless use',
-    });
-
-    expect(openBrowser).not.toHaveBeenCalled();
-    expect(loginFlow).not.toHaveBeenCalled();
-  });
 });
 
 describe('logged-out login menu', () => {
-  it('choice 2 routes to account creation', async () => {
+  it('choice 2 routes to every signup', async () => {
     const io = mockProcessIo();
-    vi.mocked(openBrowser).mockImplementation(async () => {
-      setTimeout(() => io.input.write('\n'), 0);
-    });
 
     const login = loginCommand();
     io.input.write('2\n');
@@ -234,8 +175,9 @@ describe('logged-out login menu', () => {
 
     expect(io.stderr.text()).toContain("You're not signed in to Every.");
     expect(io.stderr.text()).toContain('2) Create an account');
-    expect(openBrowser).toHaveBeenCalledWith('https://app.every.ai/sign-up');
-    expect(loginFlow).toHaveBeenCalledOnce();
+    expect(signupCommand).toHaveBeenCalledOnce();
+    expect(openBrowser).not.toHaveBeenCalled();
+    expect(loginFlow).not.toHaveBeenCalled();
   });
 
   it.each(['1', ''])('choice %j routes directly to login', async (answer) => {
