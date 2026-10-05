@@ -164,7 +164,7 @@ Calendar tools operate on the user's personal calendar. Confirm attendees and ti
 
 ### Scheduled tasks report in-app, never in this session
 
-`every tool call create_scheduled_task ...` sets up a saved instruction that runs on a cadence (once/daily/weekly/monthly). Results and any notifications always arrive in the Every app (Daily Brief / notifications) and by email if enabled — never back in this CLI session, so don't tell the user to expect output here.
+`every tool call create_scheduled_task ...` sets up a saved instruction that runs on a cadence (once/daily/weekly/monthly). Results and any notifications always arrive in the Every app (Daily Brief / notifications) and by email if enabled — never back in this CLI session, so don't tell the user to expect output here. If the user later asks what a task produced, read its latest stored result with `get_scheduled_task_result` (see Stored briefs and reports).
 
 ### Prospecting reads
 
@@ -172,7 +172,7 @@ Use `list_prospects`, `view_prospect`, and `network_summary` to research the use
 
 ### Stored briefs and reports
 
-`get_daily_brief` and `get_heartbeat_summary` read stored artifacts for the authenticated caller only; do not imply they regenerate or share a brief. Use `get_financial_report` for the server-computed financial view and preserve its reported period and currency.
+`get_daily_brief` and `get_scheduled_task_result` read stored artifacts for the authenticated caller only; do not imply they regenerate or share a brief or a result. `get_scheduled_task_result` returns the latest completed result of one of the user's scheduled tasks: take the `task_id` from `list_scheduled_tasks`. It does not run the task, and `result` can be null when no run has completed yet. Use `get_financial_report` for the server-computed financial view and preserve its reported period and currency.
 
 ### Recurring invoices
 

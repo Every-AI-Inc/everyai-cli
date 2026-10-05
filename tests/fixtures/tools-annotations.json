@@ -342,7 +342,7 @@
   "openWorld": false
  },
  {
-  "name": "get_heartbeat_summary",
+  "name": "get_scheduled_task_result",
   "readOnly": true,
   "destructive": false,
   "openWorld": false

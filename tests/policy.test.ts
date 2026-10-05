@@ -121,7 +121,7 @@ describe('policy classification', () => {
       'view_prospect',
       'network_summary',
       'get_daily_brief',
-      'get_heartbeat_summary',
+      'get_scheduled_task_result',
       'get_financial_report',
       'list_recurring_invoices',
       'list_meta_field_definitions',
