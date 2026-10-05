@@ -23,9 +23,9 @@ function isOverridden(name: string): boolean {
     name === 'ask_assistant' ||
     name === 'record_payment' ||
     name === 'run_recurring_invoice_now' ||
-    name === 'approve_pending_deal' ||
+    name === 'approve_prospect' ||
     name === 'create_delivery_deal' ||
-    name === 'set_deal_title' ||
+    name === 'set_deal_name' ||
     name === 'link_deal_item' ||
     name === 'unlink_deal_item' ||
     /^delete_|^void_|^send_|^cancel_/.test(name)
@@ -149,11 +149,29 @@ describe('policy classification', () => {
     }
   });
 
-  it('pins approve_pending_deal to write via a local override, independent of server annotations', () => {
-    expect(classify(tool('approve_pending_deal'))).toMatchObject({ level: 'write', source: 'override' });
+  it('pins approve_prospect to write via a local override, independent of server annotations', () => {
+    expect(classify(tool('approve_prospect'))).toMatchObject({ level: 'write', source: 'override' });
     // Even with no annotation metadata at all — the override doesn't depend on the server
     // continuing to send destructiveHint:false.
-    expect(classify({ name: 'approve_pending_deal' })).toMatchObject({ level: 'write', source: 'override' });
+    expect(classify({ name: 'approve_prospect' })).toMatchObject({ level: 'write', source: 'override' });
+    // Nor on a host view that flags it destructive (the ChatGPT listing does).
+    expect(classify({ name: 'approve_prospect', destructive: true })).toMatchObject({
+      level: 'write',
+      source: 'override',
+    });
+  });
+
+  it('mirrors the renamed deal and prospect tools and drops the retired names', () => {
+    // 2026-10 naming alignment: approve_pending_deal -> approve_prospect,
+    // set_deal_target_value -> set_deal_value_estimate, set_deal_title -> set_deal_name.
+    const names = new Set(tools.map((candidate) => candidate.name));
+    for (const retired of ['approve_pending_deal', 'set_deal_target_value', 'set_deal_title']) {
+      expect(names.has(retired), `${retired} is retired`).toBe(false);
+    }
+    expect(classify(tool('set_deal_value_estimate'))).toMatchObject({ level: 'write', source: 'annotation' });
+    expect(classify(tool('set_deal_name'))).toMatchObject({ level: 'write', source: 'override' });
+    // delete_invoice keeps its name (its title is "Void invoice") and stays destructive.
+    expect(classify(tool('delete_invoice'))).toMatchObject({ level: 'destructive', source: 'override' });
   });
 
   it('pins the client-deal write tools via local overrides, with or without annotations', () => {
@@ -163,7 +181,7 @@ describe('policy classification', () => {
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     };
 
-    for (const name of ['create_delivery_deal', 'set_deal_title', 'link_deal_item']) {
+    for (const name of ['create_delivery_deal', 'set_deal_name', 'link_deal_item']) {
       expect(classify({ name, ...serverAnnotations })).toMatchObject({
         level: 'write',
         source: 'override',

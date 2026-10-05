@@ -113,3 +113,12 @@ export function emitError(
     process.stderr.write(rendered + '\n');
   }
 }
+
+/**
+ * One-line deprecation note for a renamed command or flag. It goes to stderr in
+ * every mode, like the one-time skills tip, so `--json` stdout stays a single
+ * envelope while an agent reading stderr still learns the current name.
+ */
+export function deprecationNote(message: string): void {
+  process.stderr.write(`Note: ${message}\n`);
+}

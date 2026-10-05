@@ -1,0 +1,7 @@
+---
+"@everyai/cli": patch
+---
+
+The CLI now uses Every's current names, the same ones the in-app agent uses. `every person list [--search <q>] [--limit <n>]` lists People through `list_people`. `every contact list` still works as a hidden, deprecated alias and prints a one-line note to stderr. `every invoice create` takes `--company-id <id>` or `--person-id <id>` to name the recipient without a name search. `--client-id` (a Company unless `--person` names a Person, as before) and `--client` (an alias for `--company`) still work as hidden, deprecated aliases with a one-line stderr note. Conflicting recipient flags are a usage error, and an ambiguous name now says which id flag to use. Help and `every docs` list only the current names; with `--json`, stdout is still one envelope.
+
+The local safety policy follows the admin MCP renames: `approve_prospect` (which replaces the removed `approve_pending_deal`) and `set_deal_name` (formerly `set_deal_title`) stay pinned to the write tier. The bundled `use-every` skill is now revision 3, so installed copies refresh on the next `every login` or `every signup`. It teaches `approve_prospect`, `merge_prospect` with `into_deal_id`, `reject_prospect`, `view_prospect` with `prospect_id`, `network_summary` with `target_id`, `set_deal_name`, `set_deal_value_estimate`, and the new recipient flags. The test fixtures that mirror the server's tool surface carry the new tool names and the `rejected` review filter value.

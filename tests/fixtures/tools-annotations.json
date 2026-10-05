@@ -270,10 +270,10 @@
   "openWorld": false
  },
  {
-  "name": "approve_pending_deal",
+  "name": "approve_prospect",
   "readOnly": false,
   "destructive": false,
-  "openWorld": false
+  "openWorld": true
  },
  {
   "name": "move_deal_stage",
@@ -288,13 +288,13 @@
   "openWorld": false
  },
  {
-  "name": "set_deal_target_value",
+  "name": "set_deal_value_estimate",
   "readOnly": false,
   "destructive": false,
   "openWorld": false
  },
  {
-  "name": "set_deal_title",
+  "name": "set_deal_name",
   "readOnly": false,
   "destructive": false,
   "openWorld": false

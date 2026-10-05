@@ -2,7 +2,7 @@
 name: use-every
 description: Drive the Every AI CLI (`every`) to manage the user's service business — invoices, People, Companies, proposals, deals, pipeline, payments, services, custom fields, and scheduled tasks. Use when the user asks “who owes me money?”, wants a lead or deal follow-up, asks to sign up for Every, asks to look up, create, update, convert, or send a business record, or mentions their Every workspace.
 metadata:
-  every-skill-version: "2"
+  every-skill-version: "3"
 ---
 
 # Use Every
@@ -94,7 +94,7 @@ Never assume the bound workspace. When the user names a different workspace, run
 Creating a proposal or invoice automatically records activity on a matching deal when exactly one deal/party (Person or Company) matches. After an Every creation command, never double-log that action:
 
 ```bash
-every invoice create --client-id <client_id> --amount 100 --yes --json
+every invoice create --company-id <company_id> --amount 100 --yes --json
 every tool call create_proposal --args proposal.json --yes --json
 ```
 
@@ -113,15 +113,15 @@ Pipeline stages are `lead`, `opportunity`, `won`, and `lost`:
 every deal move <deal_id> won --yes --json
 ```
 
-Moving to `won` requires the deal to already be linked to a Person or Company. If the command errors because no party is assigned, assign one first (e.g. via `create_deal`'s `party`, or by updating the deal's target in the Every app), then retry the same command.
+Moving to `won` requires the deal to already be linked to a Person or Company. If the command errors because no party is assigned, assign one first (e.g. via `create_deal`'s `party`, or by linking a Person or Company to the deal in the Every app), then retry the same command.
 
 ### Invoice rates and tax
 
-Treat `unit_price` as the per-unit rate, not the line total. The simple CLI's `--amount` maps to that per-unit rate:
+Treat `unit_price` as the per-unit rate, not the line total. The simple CLI's `--amount` maps to that per-unit rate. Name the recipient with `--company-id` or `--person-id` (or `--company`/`--person` to resolve a name):
 
 ```bash
-every invoice create --client-id <client_id> --description "Workshop" --quantity 3 --amount 100 --yes --json
-every tool call create_invoice --arg command='{"operation_id":"<uuid>","party":{"kind":"company","id":"<client_id>"},"line_items":[{"description":"Workshop","quantity":3,"unit_price":100}]}' --yes --json
+every invoice create --company-id <company_id> --description "Workshop" --quantity 3 --amount 100 --yes --json
+every tool call create_invoice --arg command='{"operation_id":"<uuid>","party":{"kind":"company","id":"<company_id>"},"line_items":[{"description":"Workshop","quantity":3,"unit_price":100}]}' --yes --json
 ```
 
 Leave `sales_tax_applied` unset so the business default applies. Never add tax as a line item. When currency, tax, or timezone matters, read settings first with `every tool call business_settings --json`; let Every compute tax, numbering, due dates, and totals.
@@ -166,9 +166,13 @@ Calendar tools operate on the user's personal calendar. Confirm attendees and ti
 
 `every tool call create_scheduled_task ...` sets up a saved instruction that runs on a cadence (once/daily/weekly/monthly). Results and any notifications always arrive in the Every app (Daily Brief / notifications) and by email if enabled — never back in this CLI session, so don't tell the user to expect output here. If the user later asks what a task produced, read its latest stored result with `get_scheduled_task_result` (see Stored briefs and reports).
 
-### Prospecting reads
+### Prospects and deal details
 
-Use `list_prospects`, `view_prospect`, and `network_summary` to research the user's network. Treat the returned personal and relationship context as private; these tools do not contact prospects.
+Use `list_prospects`, `view_prospect` (`prospect_id`), and `network_summary` (optional `target_id`) to research the user's network. Treat the returned personal and relationship context as private; these tools do not contact prospects.
+
+A prospect awaiting review becomes a deal with `approve_prospect` (`prospect_id`), joins an existing deal with `merge_prospect` (`prospect_id`, `into_deal_id`), or is rejected with `reject_prospect`. Rejecting is destructive: it suppresses the Person across every target in the workspace, so say so before asking for approval. The review filter value for rejected prospects is `rejected`.
+
+Rename a deal with `set_deal_name` (`deal_id`, `name`). Record an expected amount on a deal with no proposal or invoice yet with `set_deal_value_estimate` (`deal_id`, `target_value`); call it a value estimate.
 
 ### Stored briefs and reports
 
@@ -235,7 +239,7 @@ Stop if the proposal is not issued/approved. Review the linked draft and obtain 
 Intake a new lead:
 
 ```bash
-every contact list --search "person@example.com" --json
+every person list --search "person@example.com" --json
 every tool call create_person --args person.json --yes --json
 every tool call create_deal --args deal.json --yes --json
 ```

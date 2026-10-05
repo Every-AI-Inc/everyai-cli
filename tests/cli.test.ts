@@ -798,7 +798,7 @@ describe('CLI contract', () => {
         [
           'invoice',
           'create',
-          '--client',
+          '--company',
           'Acme',
           '--amount',
           '100',
@@ -1271,7 +1271,8 @@ describe('CLI contract', () => {
     ['draft_email', 'write', 'annotation'],
     ['cancel_scheduled_task', 'destructive', 'override'],
     ['run_recurring_invoice_now', 'destructive', 'override'],
-    ['approve_pending_deal', 'write', 'override'],
+    ['approve_prospect', 'write', 'override'],
+    ['set_deal_name', 'write', 'override'],
   ])(
     'explains %s policy correctly without cached server metadata',
     async (toolName, level, source) => {
@@ -1316,7 +1317,7 @@ describe('CLI contract', () => {
       { name: 'move_deal_stage', arguments: { deal_id: 'deal_123', stage: 'won' } },
     ],
     [
-      ['contact', 'list', '--search', 'Brandon', '--limit', '2', '--json'],
+      ['person', 'list', '--search', 'Brandon', '--limit', '2', '--json'],
       { name: 'list_people', arguments: { query: 'Brandon', limit: 2 } },
     ],
   ])('maps alias %s to the expected tool call', async (args, expectedCall) => {
@@ -1327,6 +1328,7 @@ describe('CLI contract', () => {
 
       expect(result.code).toBe(0);
       expect(result.stderr).toContain('Tip: teach your coding agent this CLI');
+      expect(result.stderr).not.toContain('deprecated');
       expect(parseJsonStdout(result.stdout)).toMatchObject({
         ok: true,
         env: 'custom',
@@ -1337,6 +1339,41 @@ describe('CLI contract', () => {
         },
       });
       expect(server.toolCalls).toEqual([expectedCall]);
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps every contact list as a hidden, deprecated alias for every person list', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli(
+        ['contact', 'list', '--search', 'Brandon', '--limit', '2', '--json'],
+        mockEnv(server, configDir),
+      );
+
+      expect(result.code).toBe(0);
+      const notes = result.stderr.split('\n').filter((line) => line.includes('deprecated'));
+      expect(notes).toEqual(['Note: `every contact` is deprecated; use `every person`.']);
+      // stdout is still exactly one envelope.
+      expect(parseJsonStdout(result.stdout)).toMatchObject({
+        ok: true,
+        data: { tool: 'list_people', structured_content: { received: { query: 'Brandon', limit: 2 } } },
+      });
+      expect(server.toolCalls).toEqual([
+        { name: 'list_people', arguments: { query: 'Brandon', limit: 2 } },
+      ]);
+
+      // Hidden from help and from the offline docs; `person` is advertised instead.
+      const help = await runCli(['--help']);
+      expect(help.stdout).toMatch(/^\s+person \[options\]\s+Work with People$/m);
+      expect(help.stdout).not.toMatch(/^\s+contact\b/m);
+      const docs = await runCli(['docs', '--json']);
+      const commands = (parseJsonStdout(docs.stdout).data as { commands: string }).commands;
+      expect(commands).toContain('every person list --search <q> --limit <n>');
+      expect(commands).not.toContain('contact');
     } finally {
       await server.close();
       await rm(configDir, { recursive: true, force: true });

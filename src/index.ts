@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
-import { Command, CommanderError } from 'commander';
+import { Command, CommanderError, Option } from 'commander';
 import { pingCommand } from './commands/ping.js';
 import { docsCommand } from './commands/docs.js';
 import {
@@ -23,16 +23,16 @@ import {
   toolsListCommand,
 } from './commands/tools.js';
 import {
-  contactListCommand,
   dealListCommand,
   dealMoveCommand,
   invoiceCreateCommand,
   invoiceListCommand,
   invoiceSendCommand,
+  personListCommand,
 } from './commands/aliases.js';
 import { skillsInstallCommand, skillsListCommand } from './commands/skills.js';
 import { CliError } from './lib/errors.js';
-import { emit, emitError } from './lib/output.js';
+import { deprecationNote, emit, emitError } from './lib/output.js';
 import { ExitCode } from './lib/exit-codes.js';
 import { runDefaultFirstRunMenu } from './lib/first-run.js';
 
@@ -321,17 +321,27 @@ withGlobalOptions(
   withToolExecutionOptions(
     invoiceCommand
       .command('create')
-      .description('Create a simple draft invoice')
-      .option('--client <name>', 'company name to resolve via list_companies (deprecated alias for --company)')
-      .option('--company <name>', 'company name to resolve via list_companies')
-      .option('--person <name>', 'person name to resolve via list_people')
-      .option('--client-id <id>', 'client id; skips name resolution')
+      .description('Create a simple draft invoice for a Company or a Person')
+      .option('--company <name>', 'Company name to resolve via list_companies')
+      .option('--person <name>', 'Person name to resolve via list_people')
+      .option('--company-id <id>', 'Company id; skips name resolution')
+      .option('--person-id <id>', 'Person id; skips name resolution')
+      .addOption(new Option('--client <name>', 'deprecated alias for --company').hideHelp())
+      .addOption(
+        new Option('--client-id <id>', 'deprecated: use --company-id or --person-id').hideHelp(),
+      )
       .requiredOption('--amount <n>', 'unit price for the single line item')
       .option('--description <text>', 'line item description')
       .option('--quantity <q>', 'line item quantity'),
   ),
 ).action(async (_options: unknown, command: Command) => {
   const opts = command.optsWithGlobals();
+  if (opts.client !== undefined) {
+    deprecationNote('`--client` is deprecated; use `--company` (or `--person` for a Person).');
+  }
+  if (opts.clientId !== undefined) {
+    deprecationNote('`--client-id` is deprecated; use `--company-id` or `--person-id`.');
+  }
   await invoiceCreateCommand({
     json: opts.json,
     staging: opts.staging,
@@ -343,6 +353,8 @@ withGlobalOptions(
     client: opts.client,
     company: opts.company,
     person: opts.person,
+    companyId: opts.companyId,
+    personId: opts.personId,
     clientId: opts.clientId,
     amount: opts.amount,
     description: opts.description,
@@ -450,37 +462,58 @@ withGlobalOptions(
   });
 });
 
-const contactCommand = withToolExecutionOptions(
+/**
+ * Register `list` under `every person` and under the hidden, deprecated
+ * `every contact` alias ("contact" is retired vocabulary: the product's people
+ * model is People and Companies).
+ */
+function addPersonListCommand(parent: Command, deprecation?: string): void {
   withGlobalOptions(
-    program
-      .command('contact')
-      .description('Work with contacts')
-      .addHelpText('after', TOOL_CALL_HELP),
+    withToolExecutionOptions(
+      parent
+        .command('list')
+        .description('List People')
+        .option('--search <q>', 'search People by name, email, phone, or employer')
+        .option('--limit <n>', 'maximum number of People to return'),
+    ),
+  ).action(async (_options: unknown, command: Command) => {
+    if (deprecation) deprecationNote(deprecation);
+    const opts = command.optsWithGlobals();
+    await personListCommand({
+      json: opts.json,
+      staging: opts.staging,
+      noCache: opts.noCache,
+      yes: opts.yes,
+      allowDestructive: opts.allowDestructive,
+      readOnly: opts.readOnly,
+      timeout: opts.timeout,
+      search: opts.search,
+      limit: opts.limit,
+    });
+  });
+}
+
+addPersonListCommand(
+  withToolExecutionOptions(
+    withGlobalOptions(
+      program
+        .command('person')
+        .description('Work with People')
+        .addHelpText('after', TOOL_CALL_HELP),
+    ),
   ),
 );
 
-withGlobalOptions(
+addPersonListCommand(
   withToolExecutionOptions(
-    contactCommand
-      .command('list')
-      .description('List contacts')
-      .option('--search <q>', 'contact name search query')
-      .option('--limit <n>', 'maximum number of contacts to return'),
+    withGlobalOptions(
+      program
+        .command('contact', { hidden: true })
+        .description('Deprecated alias for every person'),
+    ),
   ),
-).action(async (_options: unknown, command: Command) => {
-  const opts = command.optsWithGlobals();
-  await contactListCommand({
-    json: opts.json,
-    staging: opts.staging,
-    noCache: opts.noCache,
-    yes: opts.yes,
-    allowDestructive: opts.allowDestructive,
-    readOnly: opts.readOnly,
-    timeout: opts.timeout,
-    search: opts.search,
-    limit: opts.limit,
-  });
-});
+  '`every contact` is deprecated; use `every person`.',
+);
 
 const policyCommand = withGlobalOptions(
   program.command('policy').description('Explain local tool safety policy'),

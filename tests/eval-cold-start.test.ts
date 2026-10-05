@@ -212,7 +212,7 @@ describe('cold-start invoice eval', () => {
       invocations.push(await runCli(['docs'], env));
       invocations.push(await runCli(['whoami', '--json'], env));
       invocations.push(await runCli(
-        ['invoice', 'create', '--client', 'Brandon Chu', '--amount', '100', '--yes', '--json'],
+        ['invoice', 'create', '--company', 'Brandon Chu', '--amount', '100', '--yes', '--json'],
         env,
       ));
 
@@ -281,7 +281,7 @@ describe('cold-start invoice eval', () => {
     }
   });
 
-  it('returns mechanical ambiguity candidates and supports a client-id retry', async () => {
+  it('returns mechanical ambiguity candidates and supports a company-id retry', async () => {
     const server = await createMockMcpServer();
     const configDir = await tempConfig();
     const invocations: CliResult[] = [];
@@ -297,7 +297,7 @@ describe('cold-start invoice eval', () => {
     try {
       const ambiguousEnv = mockEnv(server, configDir, withClients(ambiguousClients));
       invocations.push(await runCli(
-        ['invoice', 'create', '--client', 'Brandon', '--amount', '100', '--yes', '--json'],
+        ['invoice', 'create', '--company', 'Brandon', '--amount', '100', '--yes', '--json'],
         ambiguousEnv,
       ));
 
@@ -306,7 +306,10 @@ describe('cold-start invoice eval', () => {
       expect(ambiguousEnvelope).toMatchObject({
         ok: false,
         env: 'custom',
-        error: { code: 'not_found' },
+        error: {
+          code: 'not_found',
+          message: expect.stringContaining('Re-run with --company-id <id>'),
+        },
       });
       expect((ambiguousEnvelope.error as { candidates: unknown[] }).candidates).toHaveLength(2);
       expect(callsNamed(server.toolCalls, 'list_companies')).toHaveLength(1);
@@ -317,7 +320,7 @@ describe('cold-start invoice eval', () => {
         [
           'invoice',
           'create',
-          '--client-id',
+          '--company-id',
           brandonClient.client_id,
           '--amount',
           '100',
@@ -329,6 +332,7 @@ describe('cold-start invoice eval', () => {
 
       expect(invocations).toHaveLength(2);
       expect(invocations[1].code).toBe(0);
+      expect(invocations[1].stderr).not.toContain('deprecated');
       expect(callsNamed(server.toolCalls, 'list_companies')).toHaveLength(0);
       expect(callsNamed(server.toolCalls, 'create_invoice')).toHaveLength(1);
     } finally {
@@ -371,10 +375,8 @@ describe('create_invoice payload matches the live server schema', () => {
       const args =
         kind === 'company'
           ? ['invoice', 'create', '--company', 'Acme', '--amount', '250', '--description', 'Consulting', '--quantity', '2', '--yes', '--json']
-          // A bare --client-id has no name to resolve, so pairing it with --person
-          // is the documented way to tell resolveClient the id is a Person, not a
-          // Company (the historical "client" default) — exercised here directly.
-          : ['invoice', 'create', '--client-id', targetId, '--person', 'Bob', '--amount', '250', '--description', 'Consulting', '--quantity', '2', '--yes', '--json'];
+          // --person-id carries the Person kind itself; no name search runs.
+          : ['invoice', 'create', '--person-id', targetId, '--amount', '250', '--description', 'Consulting', '--quantity', '2', '--yes', '--json'];
       const env =
         kind === 'company'
           ? mockEnv(server, configDir, withClients([{ client_id: targetId, name: 'Acme' }]))
@@ -408,20 +410,50 @@ describe('create_invoice payload matches the live server schema', () => {
     }
   });
 
-  it('defaults a bare --client-id (no --company/--person) to a company party', async () => {
+  it.each([
+    [['--company-id', targetIdFor('cid')], { kind: 'company', id: targetIdFor('cid') }],
+    [['--person-id', targetIdFor('pid')], { kind: 'person', id: targetIdFor('pid') }],
+    [['--company-id', targetIdFor('cid'), '--company', 'Acme'], { kind: 'company', id: targetIdFor('cid') }],
+  ])('sends %j as the typed party without a name search or deprecation note', async (flags, party) => {
     const server = await createMockMcpServer();
     const configDir = await tempConfig();
-    const targetId = targetIdFor('bare');
     try {
       const result = await runCli(
-        ['invoice', 'create', '--client-id', targetId, '--amount', '100', '--yes', '--json'],
+        ['invoice', 'create', ...flags, '--amount', '100', '--yes', '--json'],
         mockEnv(server, configDir),
       );
 
       expect(result.code).toBe(0);
-      const createCall = callsNamed(server.toolCalls, 'create_invoice')[0];
-      const command = createCall.arguments.command as Record<string, unknown>;
-      expect(command.party).toEqual({ kind: 'company', id: targetId });
+      expect(result.stderr).not.toContain('deprecated');
+      expect(callsNamed(server.toolCalls, 'list_companies')).toHaveLength(0);
+      expect(callsNamed(server.toolCalls, 'list_people')).toHaveLength(0);
+      const command = callsNamed(server.toolCalls, 'create_invoice')[0].arguments.command as Record<string, unknown>;
+      expect(command.party).toEqual(party);
+    } finally {
+      await server.close();
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    // Deprecated --client-id keeps its old behaviour: company unless --person names a Person.
+    [['--client-id', targetIdFor('bare')], { kind: 'company', id: targetIdFor('bare') }],
+    [['--client-id', targetIdFor('bob'), '--person', 'Bob'], { kind: 'person', id: targetIdFor('bob') }],
+  ])('keeps the deprecated %j working with a one-line stderr note', async (flags, party) => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli(
+        ['invoice', 'create', ...flags, '--amount', '100', '--yes', '--json'],
+        mockEnv(server, configDir),
+      );
+
+      expect(result.code).toBe(0);
+      const notes = result.stderr.split('\n').filter((line) => line.includes('deprecated'));
+      expect(notes).toEqual(['Note: `--client-id` is deprecated; use `--company-id` or `--person-id`.']);
+      expect(parseJsonStdout(result.stdout)).toMatchObject({ ok: true });
+      const command = callsNamed(server.toolCalls, 'create_invoice')[0].arguments.command as Record<string, unknown>;
+      expect(command.party).toEqual(party);
     } finally {
       await server.close();
       await rm(configDir, { recursive: true, force: true });
@@ -505,7 +537,7 @@ describe('invoice create command guards', () => {
     const configDir = await tempConfig();
     try {
       const result = await runCli(
-        ['invoice', 'create', '--client', 'Brandon Chu', '--amount', '0', '--yes', '--json'],
+        ['invoice', 'create', '--company', 'Brandon Chu', '--amount', '0', '--yes', '--json'],
         mockEnv(server, configDir, withClients([brandonClient])),
       );
 
@@ -521,19 +553,25 @@ describe('invoice create command guards', () => {
     }
   });
 
-  it('requires either --client or --client-id', async () => {
+  it.each([
+    [[], 'One of --company, --person, --company-id, or --person-id is required'],
+    [['--company-id', 'c1', '--person-id', 'p1'], 'Use only one of --company-id or --person-id'],
+    [['--company-id', 'c1', '--client-id', 'x1'], 'Use only one of --company-id or --person-id'],
+    [['--company-id', 'c1', '--person', 'Bob'], '--company-id names a company; use --person-id for a person'],
+    [['--person-id', 'p1', '--company', 'Acme'], '--person-id names a person; use --company-id for a company'],
+  ])('rejects recipient flags %j with a usage error before any tool call', async (flags, message) => {
     const server = await createMockMcpServer();
     const configDir = await tempConfig();
     try {
       const result = await runCli(
-        ['invoice', 'create', '--amount', '100', '--yes', '--json'],
+        ['invoice', 'create', ...flags, '--amount', '100', '--yes', '--json'],
         mockEnv(server, configDir),
       );
 
       expect(result.code).toBe(2);
       expect(parseJsonStdout(result.stdout)).toMatchObject({
         ok: false,
-        error: { code: 'usage' },
+        error: { code: 'usage', message: expect.stringContaining(message) },
       });
       expect(server.toolCalls).toHaveLength(0);
     } finally {
@@ -542,31 +580,34 @@ describe('invoice create command guards', () => {
     }
   });
 
-  it('bypasses list_companies when --client-id is supplied', async () => {
+  it('keeps --client as a deprecated alias for --company', async () => {
     const server = await createMockMcpServer();
     const configDir = await tempConfig();
     try {
       const result = await runCli(
-        [
-          'invoice',
-          'create',
-          '--client-id',
-          brandonClient.client_id,
-          '--amount',
-          '100',
-          '--yes',
-          '--json',
-        ],
+        ['invoice', 'create', '--client', 'Brandon Chu', '--amount', '100', '--yes', '--json'],
         mockEnv(server, configDir, withClients([brandonClient])),
       );
 
       expect(result.code).toBe(0);
-      expect(callsNamed(server.toolCalls, 'list_companies')).toHaveLength(0);
-      expect(callsNamed(server.toolCalls, 'create_invoice')).toHaveLength(1);
+      const notes = result.stderr.split('\n').filter((line) => line.includes('deprecated'));
+      expect(notes).toEqual(['Note: `--client` is deprecated; use `--company` (or `--person` for a Person).']);
+      expect(server.toolCalls[0]).toEqual({ name: 'list_companies', arguments: { query: 'Brandon Chu' } });
+      const command = callsNamed(server.toolCalls, 'create_invoice')[0].arguments.command as Record<string, unknown>;
+      expect(command.party).toEqual({ kind: 'company', id: brandonClient.client_id });
     } finally {
       await server.close();
       await rm(configDir, { recursive: true, force: true });
     }
+  });
+
+  it('hides the deprecated recipient flags from help', async () => {
+    const help = await runCli(['invoice', 'create', '--help']);
+
+    expect(help.code).toBe(0);
+    expect(help.stdout).toContain('--company-id <id>');
+    expect(help.stdout).toContain('--person-id <id>');
+    expect(help.stdout).not.toContain('--client');
   });
 
   it('keeps the write gate before create_invoice without --yes', async () => {
@@ -574,7 +615,7 @@ describe('invoice create command guards', () => {
     const configDir = await tempConfig();
     try {
       const result = await runCli(
-        ['invoice', 'create', '--client', 'Brandon Chu', '--amount', '100', '--json'],
+        ['invoice', 'create', '--company', 'Brandon Chu', '--amount', '100', '--json'],
         mockEnv(server, configDir, withClients([brandonClient])),
       );
 

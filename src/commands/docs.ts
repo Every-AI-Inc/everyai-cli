@@ -39,9 +39,17 @@ function commandLine(command: Command, parents: string[]): string {
   return parts.join(' ').replace(/\s+/g, ' ').trim();
 }
 
+// Deprecated aliases (e.g. `every contact`) are registered hidden; like hidden
+// options, they stay out of the offline docs so agents learn only current names.
+function isHidden(command: Command): boolean {
+  return (command as Command & { _hidden?: boolean })._hidden === true;
+}
+
 function walkCommands(command: Command, parents: string[] = []): string[] {
   const line = commandLine(command, parents);
-  const children = command.commands.flatMap((child) => walkCommands(child, [...parents, command.name()]));
+  const children = command.commands
+    .filter((child) => !isHidden(child))
+    .flatMap((child) => walkCommands(child, [...parents, command.name()]));
   return [line, ...children];
 }
 

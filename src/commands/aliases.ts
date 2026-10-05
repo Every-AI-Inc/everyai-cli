@@ -21,14 +21,18 @@ interface DealListOptions extends ListOptions {
   stage?: string;
 }
 
-interface ContactListOptions extends ListOptions {}
+interface PersonListOptions extends ListOptions {}
 
 interface InvoiceSendOptions extends ToolExecutionOptions {}
 
 interface InvoiceCreateOptions extends ToolExecutionOptions {
+  /** Deprecated alias for `company`. */
   client?: string;
   company?: string;
   person?: string;
+  companyId?: string;
+  personId?: string;
+  /** Deprecated: an id of either kind; `company` unless `--person` names a Person. */
   clientId?: string;
   amount?: string;
   description?: string;
@@ -64,9 +68,10 @@ export interface ClientCandidate {
 
 export interface ResolvedClient {
   client_id: string;
-  // Every FinancialParty needs an explicit kind; a bare --client-id (no --company
-  // or --person alongside it) can't infer one from a name search, so it defaults
-  // to 'company' — the historical meaning of "client" in this CLI's own flags.
+  // Every FinancialParty needs an explicit kind. --company-id and --person-id
+  // carry it; the deprecated --client-id can't, so it takes the kind of a
+  // --company/--person name given alongside it and otherwise defaults to
+  // 'company', the historical meaning of "client" in this CLI's own flags.
   kind: 'company' | 'person';
   name: string | null;
 }
@@ -267,28 +272,42 @@ export function parseClientCandidates(result: {
   ]);
 }
 
-function partyCandidatesMessage(label: string, query: string, candidates: ClientCandidate[]): string {
+type PartyKind = 'company' | 'person';
+
+const PARTY_ID_FLAG: Record<PartyKind, string> = {
+  company: '--company-id',
+  person: '--person-id',
+};
+
+function partyCandidatesMessage(kind: PartyKind, query: string, candidates: ClientCandidate[]): string {
   return [
-    `Multiple ${label}s matching "${query}".`,
+    `Multiple ${kind === 'person' ? 'People' : 'Companies'} matching "${query}".`,
     ...candidates.map((candidate) => `${candidate.client_id}  ${candidate.name}`),
-    'Re-run with --client-id <id>',
+    `Re-run with ${PARTY_ID_FLAG[kind]} <id>`,
   ].join('\n');
 }
 
 interface PartySelector {
-  kind: 'company' | 'person';
+  kind: PartyKind;
   name: string;
 }
 
-// --client is the deprecated alias for --company (the historical "client" concept is
-// now the Company record); --person resolves via the People half of the same schema.
+interface PartyIdSelector {
+  // undefined only for the deprecated --client-id, which does not say its kind.
+  kind: PartyKind | undefined;
+  id: string;
+  flag: string;
+}
+
+// --client is the deprecated alias for --company (the CLI's older word for the
+// invoice recipient); --person resolves via the People half of the same schema.
 function selectParty(opts: InvoiceCreateOptions): PartySelector | undefined {
   const companyName = nonEmpty(opts.company) ?? nonEmpty(opts.client);
   const personName = nonEmpty(opts.person);
 
   if (companyName && personName) {
     throw new CliError(
-      'Use only one of --company/--client or --person to resolve the invoice recipient',
+      'Use only one of --company or --person to resolve the invoice recipient',
       ExitCode.USAGE,
       'usage',
     );
@@ -299,16 +318,46 @@ function selectParty(opts: InvoiceCreateOptions): PartySelector | undefined {
   return undefined;
 }
 
-async function resolveClient(opts: InvoiceCreateOptions): Promise<ResolvedClient> {
+function selectPartyId(opts: InvoiceCreateOptions): PartyIdSelector | undefined {
+  const given: PartyIdSelector[] = [];
+  const companyId = nonEmpty(opts.companyId);
+  const personId = nonEmpty(opts.personId);
   const clientId = nonEmpty(opts.clientId);
+  if (companyId) given.push({ kind: 'company', id: companyId, flag: '--company-id' });
+  if (personId) given.push({ kind: 'person', id: personId, flag: '--person-id' });
+  if (clientId) given.push({ kind: undefined, id: clientId, flag: '--client-id' });
+
+  if (given.length > 1) {
+    throw new CliError(
+      `Use only one of --company-id or --person-id (got ${given.map((entry) => entry.flag).join(' and ')})`,
+      ExitCode.USAGE,
+      'usage',
+    );
+  }
+  return given[0];
+}
+
+async function resolveClient(opts: InvoiceCreateOptions): Promise<ResolvedClient> {
+  const partyId = selectPartyId(opts);
   const selector = selectParty(opts);
 
-  if (clientId) {
-    return { client_id: clientId, kind: selector?.kind ?? 'company', name: selector?.name ?? null };
+  if (partyId) {
+    if (partyId.kind && selector && selector.kind !== partyId.kind) {
+      throw new CliError(
+        `${partyId.flag} names a ${partyId.kind}; use ${PARTY_ID_FLAG[selector.kind]} for a ${selector.kind}`,
+        ExitCode.USAGE,
+        'usage',
+      );
+    }
+    return {
+      client_id: partyId.id,
+      kind: partyId.kind ?? selector?.kind ?? 'company',
+      name: selector?.name ?? null,
+    };
   }
   if (!selector) {
     throw new CliError(
-      '--client, --company, --person, or --client-id is required',
+      'One of --company, --person, --company-id, or --person-id is required',
       ExitCode.USAGE,
       'usage',
     );
@@ -334,7 +383,7 @@ async function resolveClient(opts: InvoiceCreateOptions): Promise<ResolvedClient
   }
 
   throw new CliError(
-    partyCandidatesMessage(label, selector.name, candidates),
+    partyCandidatesMessage(selector.kind, selector.name, candidates),
     ExitCode.NOT_FOUND,
     'not_found',
     { candidates },
@@ -413,11 +462,10 @@ export async function dealMoveCommand(
   await executeToolCall('move_deal_stage', opts, async () => ({ deal_id: dealId, stage }));
 }
 
-export async function contactListCommand(opts: ContactListOptions = {}): Promise<void> {
+export async function personListCommand(opts: PersonListOptions = {}): Promise<void> {
   const args: Record<string, unknown> = {};
   if (opts.search !== undefined) args[NETWORK_SEARCH_QUERY_PARAM] = opts.search;
   addLimit(args, opts.limit);
 
-  // list_contacts is retired; list_people is the live People/Companies replacement.
   await executeToolCall('list_people', opts, async () => args);
 }

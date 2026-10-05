@@ -547,7 +547,7 @@
  {
   "name": "list_deals",
   "title": "List deals",
-  "description": "List pipeline deals.\n\n    Defaults to live deals only: approved deals assigned to a pipeline stage.\n    Set review_state to pending, dismissed, approved, or all to inspect other\n    review states. Use search for target name or company text.\n    Responses include record ids; response_format='concise' returns trimmed rows (ids kept), 'detailed' adds links and secondary fields.\n    In ChatGPT, renders an interactive pipeline board grouped by stage.\n    ",
+  "description": "List pipeline deals.\n\n    Defaults to live deals only: approved deals assigned to a pipeline stage.\n    Set review_state to pending, rejected, approved, or all to inspect other\n    review states. Use search for target name or company text.\n    Responses include record ids; response_format='concise' returns trimmed rows (ids kept), 'detailed' adds links and secondary fields.\n    In ChatGPT, renders an interactive pipeline board grouped by stage.\n    ",
   "inputSchema": {
    "properties": {
     "stage": {
@@ -574,7 +574,7 @@
        "enum": [
         "approved",
         "pending",
-        "dismissed",
+        "rejected",
         "all"
        ],
        "type": "string"

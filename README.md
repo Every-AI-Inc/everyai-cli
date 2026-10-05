@@ -18,7 +18,7 @@ One-shot invoice example with inline args:
 ```bash
 every invoice list --status overdue --json
 every tool call create_invoice \
-  --arg command='{"operation_id":"<uuid>","party":{"kind":"company","id":"client_123"},"line_items":[{"description":"Strategy work","quantity":1,"unit_price":1500}]}' \
+  --arg command='{"operation_id":"<uuid>","party":{"kind":"company","id":"<company_id>"},"line_items":[{"description":"Strategy work","quantity":1,"unit_price":1500}]}' \
   --yes \
   --json
 ```
@@ -67,15 +67,19 @@ every tool call <name> [--args file.json|-] [--arg k=v ...] [--yes] [--allow-des
 
 # Curated aliases (same gates, nicer flags)
 every invoice list [--status <s>] [--search <q>] [--limit <n>]
+every invoice create (--company <name> | --person <name> | --company-id <id> | --person-id <id>) --amount <n>
+                                           # write: needs --yes
 every invoice send <invoice_id>            # destructive: needs --yes --allow-destructive
 every deal list [--stage <s>] [--search <q>]
 every deal move <deal_id> <stage>          # write: needs --yes
-every contact list [--search <q>]
+every person list [--search <q>]           # People
 
 # Teach your coding agent to use all of this well
 every skills install claude    # → .claude/skills/use-every/
 every skills install codex     # → .agents/skills/use-every/
 ```
+
+Deprecated aliases still work and print a one-line note to stderr: `every contact list` (use `every person list`) and `every invoice create --client <name>` / `--client-id <id>` (use `--company`, `--company-id` or `--person-id`). They are hidden from help and `every docs`.
 
 ## Signing up
 

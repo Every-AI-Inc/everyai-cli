@@ -100,17 +100,20 @@ function overrideClassification(name: string): Classification | undefined {
     };
   }
 
-  if (name === 'approve_pending_deal') {
+  // approve_prospect replaced approve_pending_deal (2026-10 naming alignment);
+  // the pin moves with it.
+  if (name === 'approve_prospect') {
     return {
       level: 'write',
       source: 'override',
       reason:
-        'approve_pending_deal activates a deal and queues its plan; hard to undo, so pin write tier regardless of server annotation drift.',
+        'approve_prospect promotes a pending prospect into an active Deal; hard to undo, so pin write tier regardless of server annotation drift.',
     };
   }
 
   // Deal tools (admin MCP, shipped 2026-09-03; create_client_deal renamed to
-  // create_delivery_deal in the 2026-09-09 People/Companies retirement). None
+  // create_delivery_deal in the 2026-09-09 People/Companies retirement, and
+  // set_deal_title to set_deal_name in the 2026-10 naming alignment). None
   // match the send_/delete_/void_/cancel_ name patterns, so without these
   // entries their tier would rest entirely on server annotations.
   if (name === 'create_delivery_deal') {
@@ -122,12 +125,12 @@ function overrideClassification(name: string): Classification | undefined {
     };
   }
 
-  if (name === 'set_deal_title') {
+  if (name === 'set_deal_name') {
     return {
       level: 'write',
       source: 'override',
       reason:
-        'set_deal_title renames a deal, or clears the name back to the system default; pin write tier regardless of server annotation drift.',
+        'set_deal_name renames a deal, or clears the name back to the system default; pin write tier regardless of server annotation drift.',
     };
   }
 

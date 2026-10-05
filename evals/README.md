@@ -44,7 +44,7 @@ Manual live staging check:
 ```bash
 every docs
 every whoami --staging --json
-every invoice create --staging --client "Brandon Chu" --amount 100 --yes --json
+every invoice create --staging --company "Brandon Chu" --amount 100 --yes --json
 ```
 
 Use `EVERY_EVAL_LIVE=1` only as a local operator signal for live eval runs; the
