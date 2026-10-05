@@ -23,6 +23,7 @@ function isOverridden(name: string): boolean {
     name === 'ask_assistant' ||
     name === 'record_payment' ||
     name === 'run_recurring_invoice_now' ||
+    name === 'approve_pending_deal' ||
     name === 'approve_prospect' ||
     name === 'create_delivery_deal' ||
     name === 'set_deal_name' ||
@@ -40,7 +41,7 @@ function tool(name: string): FixtureTool {
 
 describe('policy classification', () => {
   it('covers the full snapshotted live tool registry', () => {
-    expect(tools).toHaveLength(98);
+    expect(tools).toHaveLength(99);
   });
 
   it('classifies destructive name and financial-record overrides as destructive', () => {
@@ -149,29 +150,31 @@ describe('policy classification', () => {
     }
   });
 
-  it('pins approve_prospect to write via a local override, independent of server annotations', () => {
-    expect(classify(tool('approve_prospect'))).toMatchObject({ level: 'write', source: 'override' });
-    // Even with no annotation metadata at all — the override doesn't depend on the server
-    // continuing to send destructiveHint:false.
-    expect(classify({ name: 'approve_prospect' })).toMatchObject({ level: 'write', source: 'override' });
-    // Nor on a host view that flags it destructive (the ChatGPT listing does).
-    expect(classify({ name: 'approve_prospect', destructive: true })).toMatchObject({
-      level: 'write',
-      source: 'override',
-    });
-  });
+  it.each(['approve_pending_deal', 'approve_prospect'])(
+    'pins %s to write via a local override, independent of server annotations',
+    (name) => {
+      expect(classify(tool(name))).toMatchObject({ level: 'write', source: 'override' });
+      // Even with no annotation metadata at all — the override doesn't depend on the server
+      // continuing to send destructiveHint:false.
+      expect(classify({ name })).toMatchObject({ level: 'write', source: 'override' });
+      // Nor on a host view that flags it destructive (the ChatGPT listing does for approve_prospect).
+      expect(classify({ name, destructive: true })).toMatchObject({ level: 'write', source: 'override' });
+    },
+  );
 
-  it('mirrors the renamed deal and prospect tools and drops the retired names', () => {
-    // 2026-10 naming alignment: approve_pending_deal -> approve_prospect,
-    // set_deal_target_value -> set_deal_value_estimate, set_deal_title -> set_deal_name.
+  it('mirrors the renamed deal and invoice tools and drops the retired names', () => {
+    // 2026-10 naming alignment: set_deal_target_value -> set_deal_value_estimate,
+    // set_deal_title -> set_deal_name, delete_invoice -> void_invoice.
     const names = new Set(tools.map((candidate) => candidate.name));
-    for (const retired of ['approve_pending_deal', 'set_deal_target_value', 'set_deal_title']) {
+    for (const retired of ['set_deal_target_value', 'set_deal_title', 'delete_invoice']) {
       expect(names.has(retired), `${retired} is retired`).toBe(false);
     }
     expect(classify(tool('set_deal_value_estimate'))).toMatchObject({ level: 'write', source: 'annotation' });
     expect(classify(tool('set_deal_name'))).toMatchObject({ level: 'write', source: 'override' });
-    // delete_invoice keeps its name (its title is "Void invoice") and stays destructive.
-    expect(classify(tool('delete_invoice'))).toMatchObject({ level: 'destructive', source: 'override' });
+    // void_invoice voids (never deletes); the void_ name rule catches it, with no extra entry.
+    expect(tool('void_invoice')).toMatchObject({ readOnly: false, destructive: true });
+    expect(classify(tool('void_invoice'))).toMatchObject({ level: 'destructive', source: 'override' });
+    expect(classify({ name: 'void_invoice' }).reason).toContain('delete_/void_/cancel_');
   });
 
   it('pins the client-deal write tools via local overrides, with or without annotations', () => {

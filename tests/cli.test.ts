@@ -1271,8 +1271,10 @@ describe('CLI contract', () => {
     ['draft_email', 'write', 'annotation'],
     ['cancel_scheduled_task', 'destructive', 'override'],
     ['run_recurring_invoice_now', 'destructive', 'override'],
+    ['approve_pending_deal', 'write', 'override'],
     ['approve_prospect', 'write', 'override'],
     ['set_deal_name', 'write', 'override'],
+    ['void_invoice', 'destructive', 'override'],
   ])(
     'explains %s policy correctly without cached server metadata',
     async (toolName, level, source) => {

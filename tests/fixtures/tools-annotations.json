@@ -144,7 +144,7 @@
   "openWorld": false
  },
  {
-  "name": "delete_invoice",
+  "name": "void_invoice",
   "readOnly": false,
   "destructive": true,
   "openWorld": false
@@ -265,6 +265,12 @@
  },
  {
   "name": "create_delivery_deal",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": false
+ },
+ {
+  "name": "approve_pending_deal",
   "readOnly": false,
   "destructive": false,
   "openWorld": false

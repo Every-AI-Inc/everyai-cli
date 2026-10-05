@@ -142,6 +142,10 @@ every tool call view_invoice --arg identifier=<invoice_id> --json
 every invoice send <invoice_id> --yes --allow-destructive --json
 ```
 
+### Voiding an invoice
+
+`void_invoice` (`invoice_id`, `expected_updated_at` from `view_invoice`, a fresh `operation_id`) voids an invoice: its status becomes void and it can no longer be paid, but the invoice and its history remain. It never deletes. It is destructive, so it needs explicit approval and both destructive flags.
+
 ### Invoice re-sends
 
 `send_invoice` re-sends the invoice email itself; it does not send custom reminder copy. For an overdue follow-up, confirm with the user, re-send the invoice, and give any custom message separately for the user to send:
@@ -170,13 +174,13 @@ Calendar tools operate on the user's personal calendar. Confirm attendees and ti
 
 Use `list_prospects`, `view_prospect` (`prospect_id`), and `network_summary` (optional `target_id`) to research the user's network. Treat the returned personal and relationship context as private; these tools do not contact prospects.
 
-A prospect awaiting review becomes a deal with `approve_prospect` (`prospect_id`), joins an existing deal with `merge_prospect` (`prospect_id`, `into_deal_id`), or is rejected with `reject_prospect`. Rejecting is destructive: it suppresses the Person across every target in the workspace, so say so before asking for approval. The review filter value for rejected prospects is `rejected`.
+A prospect awaiting review becomes a deal with `approve_prospect` (`prospect_id`), the owner/bookkeeper review action; `approve_pending_deal` (`deal_id`) does the same for agents running under an API key. A prospect joins an existing deal with `merge_prospect` (`prospect_id`, `into_deal_id`), or is rejected with `reject_prospect`. Rejecting is destructive: it suppresses the Person across every target in the workspace, so say so before asking for approval. `list_prospects` lists rejected prospects with `status=rejected`.
 
 Rename a deal with `set_deal_name` (`deal_id`, `name`). Record an expected amount on a deal with no proposal or invoice yet with `set_deal_value_estimate` (`deal_id`, `target_value`); call it a value estimate.
 
 ### Stored briefs and reports
 
-`get_daily_brief` and `get_scheduled_task_result` read stored artifacts for the authenticated caller only; do not imply they regenerate or share a brief or a result. `get_scheduled_task_result` returns the latest completed result of one of the user's scheduled tasks: take the `task_id` from `list_scheduled_tasks`. It does not run the task, and `result` can be null when no run has completed yet. Use `get_financial_report` for the server-computed financial view and preserve its reported period and currency.
+`get_daily_brief` and `get_scheduled_task_result` read stored artifacts for the authenticated caller only; do not imply they regenerate or share a brief or a result. `get_scheduled_task_result` returns the latest completed result of one of the user's scheduled tasks: take the `task_id` from `list_scheduled_tasks`. It does not run the task, and `result` can be null when no run has completed yet. Use `get_financial_report` for the server-computed financial view and preserve its reported period and currency; its `entities` sections are `invoices`, `payments`, `expenses`, `proposals`, and `recurring`.
 
 ### Recurring invoices
 

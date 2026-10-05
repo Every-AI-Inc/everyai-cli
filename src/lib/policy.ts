@@ -100,8 +100,17 @@ function overrideClassification(name: string): Classification | undefined {
     };
   }
 
-  // approve_prospect replaced approve_pending_deal (2026-10 naming alignment);
-  // the pin moves with it.
+  if (name === 'approve_pending_deal') {
+    return {
+      level: 'write',
+      source: 'override',
+      reason:
+        'approve_pending_deal activates a deal and queues its plan; hard to undo, so pin write tier regardless of server annotation drift.',
+    };
+  }
+
+  // approve_prospect is the owner/bookkeeper review action next to
+  // approve_pending_deal (the path open to API keys); pin it the same way.
   if (name === 'approve_prospect') {
     return {
       level: 'write',
