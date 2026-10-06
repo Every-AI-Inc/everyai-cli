@@ -1,5 +1,15 @@
 # @everyai/cli
 
+## 0.8.1
+
+### Patch Changes
+
+- b449f81: The CLI now uses Every's current names, the same ones the in-app agent uses. `every person list [--search <q>] [--limit <n>]` lists People through `list_people`. `every contact list` still works as a hidden, deprecated alias and prints a one-line note to stderr. `every invoice create` takes `--company-id <id>` or `--person-id <id>` to name the recipient without a name search. `--client-id` (a Company unless `--person` names a Person, as before) and `--client` (an alias for `--company`) still work as hidden, deprecated aliases with a one-line stderr note. Conflicting recipient flags are a usage error, and an ambiguous name now says which id flag to use. Help and `every docs` list only the current names; with `--json`, stdout is still one envelope.
+
+  The local safety policy follows the admin MCP renames. `set_deal_name` (formerly `set_deal_title`) stays pinned to the write tier, and `approve_prospect` is pinned to write next to `approve_pending_deal`, which the server keeps. `void_invoice` (formerly `delete_invoice`; it voids and never deletes) stays destructive through the `void_` name rule. The bundled `use-every` skill is now revision 3, so installed copies refresh on the next `every login` or `every signup`. It teaches `approve_prospect` (the owner/bookkeeper review action) and `approve_pending_deal` (the API-key path), `merge_prospect` with `into_deal_id`, `reject_prospect`, `view_prospect` with `prospect_id`, `network_summary` with `target_id`, `list_prospects` with `status=rejected`, `set_deal_name`, `set_deal_value_estimate`, `void_invoice`, the `recurring` section of `get_financial_report`, and the new recipient flags. The test fixtures that mirror the server's tool surface carry the new tool names.
+
+- 1786f36: `get_heartbeat_summary` is retired. It read the stored result of the "pipeline_heartbeat" routine, which no longer runs, so it returned stale or empty data. Read a scheduled task's latest completed result with `get_scheduled_task_result` instead, passing a `task_id` from `list_scheduled_tasks`. It is read-only, it does not run the task, and the CLI treats it as a free read, like `get_daily_brief`. The bundled `use-every` skill and the test fixtures that mirror the server's tool surface now name the new tool.
+
 ## 0.8.0
 
 ### Minor Changes
