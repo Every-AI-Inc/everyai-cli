@@ -17,6 +17,7 @@ const fixturePath = path.join(
 );
 const aliasTools = JSON.parse(readFileSync(fixturePath, 'utf8'));
 const fixturesDir = path.dirname(fixturePath);
+const recipientEnvelopes = JSON.parse(readFileSync(path.join(fixturesDir, 'recipient-envelopes.json'), 'utf8'));
 // Frozen agent-signup contract (plan 2026-10-02): served only when a test opts in
 // with EVERYAI_MOCK_SIGNUP=1, so older-server behaviour stays the default.
 const signupTools = JSON.parse(readFileSync(path.join(fixturesDir, 'signup-tools.json'), 'utf8'));
@@ -456,6 +457,33 @@ export function installMockMcpFetch(mockBaseUrl, mockStateFile, visitCallback = 
 
       const handlerArgs = { ...args };
       delete handlerArgs[confirmationArg];
+
+      const overrides = JSON.parse(process.env.EVERYAI_MOCK_TOOL_RESULTS ?? '{}');
+      if (overrides[name]) {
+        return response({ jsonrpc: '2.0', id: body.id, result: overrides[name] });
+      }
+      if (name === 'preview_document_send') {
+        const preview = { ...recipientEnvelopes.preview,
+          document_kind: args.document_kind, document_id: args.document_id };
+        return response({ jsonrpc: '2.0', id: body.id,
+          result: { content: [{ type: 'text', text: 'Preview only.' }], structuredContent: preview } });
+      }
+      if (name === 'get_recipient_defaults') {
+        return response({ jsonrpc: '2.0', id: body.id,
+          result: { content: [{ type: 'text', text: 'Recipient defaults.' }], structuredContent: recipientEnvelopes.defaults } });
+      }
+      if (name === 'set_recipient_defaults') {
+        const defaults = structuredClone(recipientEnvelopes.defaults);
+        const command = handlerArgs.command;
+        const method = (id) => defaults.eligible_methods.find((entry) => entry.id === id);
+        defaults.to_method_id = command.to_method_id;
+        defaults.cc_method_ids = command.cc_method_ids;
+        defaults.recipient_preview.to = method(command.to_method_id).delivery_address;
+        defaults.recipient_preview.cc = command.cc_method_ids.map((id) => method(id).delivery_address);
+        delete defaults.recipient_details;
+        return response({ jsonrpc: '2.0', id: body.id,
+          result: { content: [{ type: 'text', text: 'Recipient defaults saved.' }], structuredContent: defaults } });
+      }
 
       if (name === 'get_signup_status') {
         const envelope = readState().signupReady ? signupEnvelopes.ready : signupEnvelopes.needs_profile;

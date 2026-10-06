@@ -1,0 +1,208 @@
+{
+  "preview": {
+    "document_kind": "invoice",
+    "document_id": "inv_123",
+    "document_number": "INV-123",
+    "party": {
+      "kind": "company",
+      "id": "client_123"
+    },
+    "recipients": {
+      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "to": "To.Exact@example.test",
+      "cc": [
+        "second@example.test",
+        "first@example.test"
+      ]
+    },
+    "recipient_details": {
+      "to": {
+        "method_id": "00000000-0000-4000-8000-000000000002",
+        "address": "To.Exact@example.test",
+        "role": "to",
+        "ordinal": 0,
+        "owner_id": "person_0",
+        "owner_name": "Alex To",
+        "owner_kind": "person",
+        "to_source": "chosen"
+      },
+      "cc": [
+        {
+          "method_id": "00000000-0000-4000-8000-000000000003",
+          "address": "second@example.test",
+          "role": "cc",
+          "ordinal": 0,
+          "owner_id": "person_1",
+          "owner_name": "Blair Second",
+          "owner_kind": "person",
+          "to_source": null
+        },
+        {
+          "method_id": "00000000-0000-4000-8000-000000000004",
+          "address": "first@example.test",
+          "role": "cc",
+          "ordinal": 1,
+          "owner_id": "person_2",
+          "owner_name": "Casey First",
+          "owner_kind": "person",
+          "to_source": null
+        }
+      ]
+    }
+  },
+  "defaults": {
+    "version": 3,
+    "configured": true,
+    "to_method_id": "00000000-0000-4000-8000-000000000002",
+    "cc_method_ids": [
+      "00000000-0000-4000-8000-000000000003",
+      "00000000-0000-4000-8000-000000000004"
+    ],
+    "none_method_ids": [
+      "00000000-0000-4000-8000-000000000005"
+    ],
+    "eligible_methods": [
+      {
+        "id": "00000000-0000-4000-8000-000000000002",
+        "delivery_address": "To.Exact@example.test",
+        "normalized_value": "to.exact@example.test",
+        "value": "To.Exact@example.test",
+        "owner": {
+          "kind": "person",
+          "id": "person_0",
+          "name": "Alex To"
+        }
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000003",
+        "delivery_address": "second@example.test",
+        "normalized_value": "second@example.test",
+        "value": "second@example.test",
+        "owner": {
+          "kind": "person",
+          "id": "person_1",
+          "name": "Blair Second"
+        }
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000004",
+        "delivery_address": "first@example.test",
+        "normalized_value": "first@example.test",
+        "value": "first@example.test",
+        "owner": {
+          "kind": "person",
+          "id": "person_2",
+          "name": "Casey First"
+        }
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000005",
+        "delivery_address": "excluded@example.test",
+        "normalized_value": "excluded@example.test",
+        "value": "excluded@example.test",
+        "owner": {
+          "kind": "person",
+          "id": "person_3",
+          "name": "Excluded"
+        }
+      }
+    ],
+    "invalid_method_ids": [],
+    "recipient_preview": {
+      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "to": "To.Exact@example.test",
+      "cc": [
+        "second@example.test",
+        "first@example.test"
+      ],
+      "error": null
+    },
+    "effective": {
+      "to_method_id": "00000000-0000-4000-8000-000000000002",
+      "cc_method_ids": [
+        "00000000-0000-4000-8000-000000000003",
+        "00000000-0000-4000-8000-000000000004"
+      ]
+    },
+    "recipient_details": {
+      "to": {
+        "method_id": "00000000-0000-4000-8000-000000000002",
+        "address": "To.Exact@example.test",
+        "role": "to",
+        "ordinal": 0,
+        "owner_id": "person_0",
+        "owner_name": "Alex To",
+        "owner_kind": "person",
+        "to_source": "chosen"
+      },
+      "cc": [
+        {
+          "method_id": "00000000-0000-4000-8000-000000000003",
+          "address": "second@example.test",
+          "role": "cc",
+          "ordinal": 0,
+          "owner_id": "person_1",
+          "owner_name": "Blair Second",
+          "owner_kind": "person",
+          "to_source": null
+        },
+        {
+          "method_id": "00000000-0000-4000-8000-000000000004",
+          "address": "first@example.test",
+          "role": "cc",
+          "ordinal": 1,
+          "owner_id": "person_2",
+          "owner_name": "Casey First",
+          "owner_kind": "person",
+          "to_source": null
+        }
+      ]
+    },
+    "options": [
+      {
+        "id": "00000000-0000-4000-8000-000000000002",
+        "delivery_address": "To.Exact@example.test",
+        "normalized_value": "to.exact@example.test",
+        "value": "To.Exact@example.test",
+        "owner": {
+          "kind": "person",
+          "id": "person_0",
+          "name": "Alex To"
+        }
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000003",
+        "delivery_address": "second@example.test",
+        "normalized_value": "second@example.test",
+        "value": "second@example.test",
+        "owner": {
+          "kind": "person",
+          "id": "person_1",
+          "name": "Blair Second"
+        }
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000004",
+        "delivery_address": "first@example.test",
+        "normalized_value": "first@example.test",
+        "value": "first@example.test",
+        "owner": {
+          "kind": "person",
+          "id": "person_2",
+          "name": "Casey First"
+        }
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000005",
+        "delivery_address": "excluded@example.test",
+        "normalized_value": "excluded@example.test",
+        "value": "excluded@example.test",
+        "owner": {
+          "kind": "person",
+          "id": "person_3",
+          "name": "Excluded"
+        }
+      }
+    ]
+  }
+}

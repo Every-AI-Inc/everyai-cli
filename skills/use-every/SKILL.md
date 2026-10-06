@@ -2,7 +2,7 @@
 name: use-every
 description: Drive the Every AI CLI (`every`) to manage the user's service business — invoices, People, Companies, proposals, deals, pipeline, payments, services, custom fields, and scheduled tasks. Use when the user asks “who owes me money?”, wants a lead or deal follow-up, asks to sign up for Every, asks to look up, create, update, convert, or send a business record, or mentions their Every workspace.
 metadata:
-  every-skill-version: "3"
+  every-skill-version: "4"
 ---
 
 # Use Every
@@ -145,6 +145,12 @@ every invoice send <invoice_id> --yes --allow-destructive --json
 ### Voiding an invoice
 
 `void_invoice` (`invoice_id`, `expected_updated_at` from `view_invoice`, a fresh `operation_id`) voids an invoice: its status becomes void and it can no longer be paid, but the invoice and its history remain. It never deletes. It is destructive, so it needs explicit approval and both destructive flags.
+
+### Invoice and proposal sends
+
+Call `preview_document_send` before approval. Show the exact To and CC first, with one name and exact email per line. Show `CC: none` if empty. Never add a CC without a request.
+
+The invoice and proposal send aliases preview recipients, then require a yes/no confirmation or `--yes`. The CLI sends the server's `{digest, to, cc}` unchanged. Direct send tools require that exact `recipients` object and both destructive flags. If the preview is stale, request approval for the new recipients.
 
 ### Invoice re-sends
 

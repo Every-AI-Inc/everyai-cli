@@ -29,6 +29,9 @@ import {
   invoiceListCommand,
   invoiceSendCommand,
   personListCommand,
+  proposalSendCommand,
+  recipientsGetCommand,
+  recipientsSetCommand,
 } from './commands/aliases.js';
 import { skillsInstallCommand, skillsListCommand } from './commands/skills.js';
 import { CliError } from './lib/errors.js';
@@ -248,7 +251,7 @@ const toolCommand = withGlobalOptions(
   program.command('tool').description('Invoke a single Every MCP tool'),
 );
 
-function collectOption(value: string, previous: string[]): string[] {
+function collectOption(value: string, previous: string[] = []): string[] {
   previous.push(value);
   return previous;
 }
@@ -391,7 +394,7 @@ withGlobalOptions(
   withToolExecutionOptions(
     invoiceCommand
       .command('send')
-      .description('Send an invoice')
+      .description('Preview recipients, confirm, and send an invoice')
       .argument('<invoice_id>', 'invoice id'),
   ),
 ).action(async (invoiceId: string, _options: unknown, command: Command) => {
@@ -399,13 +402,50 @@ withGlobalOptions(
   await invoiceSendCommand(invoiceId, {
     json: opts.json,
     staging: opts.staging,
-    noCache: opts.noCache,
+    noCache: opts.cache === false,
     yes: opts.yes,
     allowDestructive: opts.allowDestructive,
     readOnly: opts.readOnly,
     timeout: opts.timeout,
   });
 });
+
+const proposalCommand = withToolExecutionOptions(withGlobalOptions(
+  program.command('proposal').description('Work with proposals'),
+));
+withGlobalOptions(withToolExecutionOptions(
+  proposalCommand.command('send').description('Preview recipients, confirm, and send a proposal')
+    .argument('<proposal>', 'proposal id'),
+)).action(async (proposal: string, _options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await proposalSendCommand(proposal, { ...opts, noCache: opts.cache === false });
+});
+
+const recipientsCommand = withToolExecutionOptions(withGlobalOptions(
+  program.command('recipients').description('Read or set invoice and proposal recipients'),
+));
+for (const action of ['get', 'set'] as const) {
+  const command = withGlobalOptions(withToolExecutionOptions(
+    recipientsCommand.command(action).description(`${action === 'get' ? 'Read' : 'Set'} exact To and CC recipients`)
+      .argument('<party>', 'Person or Company name')
+      .requiredOption('--kind <kind>', 'invoice or proposal')
+      .option('--company <name>', 'Company name to resolve via list_companies')
+      .option('--person <name>', 'Person name to resolve via list_people')
+      .option('--company-id <id>', 'Company id; skips name resolution')
+      .option('--person-id <id>', 'Person id; skips name resolution'),
+  ));
+  if (action === 'set') {
+    command.requiredOption('--to <email-or-id>', 'To email address or eligible method id')
+      .option('--cc <email-or-id>', 'CC email address or eligible method id; repeat for more recipients', collectOption)
+      .option('--clear-cc', 'remove all CC recipients');
+  }
+  command.action(async (party: string, _options: unknown, cmd: Command) => {
+    const opts = cmd.optsWithGlobals();
+    // Commander represents --no-cache as cache:false.
+    opts.noCache = opts.cache === false;
+    await (action === 'get' ? recipientsGetCommand : recipientsSetCommand)(party, opts);
+  });
+}
 
 const dealCommand = withToolExecutionOptions(
   withGlobalOptions(

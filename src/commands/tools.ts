@@ -61,6 +61,10 @@ type DataAugmenter = (data: ToolCallData) => ToolCallData | Promise<ToolCallData
 export interface InvokeHooks {
   /** Error to raise when the server does not list the tool (default: generic not_found). */
   missingTool?: (name: string) => CliError;
+  /** Runs after policy and target checks, before the local confirmation prompt. */
+  beforeConfirmation?: () => Promise<void>;
+  /** Document aliases show recipients and use a yes/no prompt. */
+  recipientConfirmation?: boolean;
 }
 
 /**
@@ -73,6 +77,17 @@ export const SIGNUP_INCOMPLETE_GUIDANCE =
   'organization name with the user, then run `every signup complete --org-name "<name>" --yes`.';
 
 export type ToolExecutionOptions = Omit<ToolCallOptions, 'args' | 'arg'>;
+
+const RECIPIENT_ERROR_MESSAGES: Record<string, string> = {
+  send_preparation_stale: 'The recipients changed after the preview. Run the command again to see the new recipients.',
+  recipient_required: 'Choose a To recipient with every recipients set <party> --kind invoice|proposal --to <email-or-id> before you send.',
+  recipient_model_quiet: 'Recipient changes and sends are paused. Try again later.',
+  recipient_model_unavailable: 'The recipient service is unavailable. Try again later.',
+};
+
+function recipientErrorCode(message: string): string {
+  return message.trim().replace(/^Error executing tool ['"]?(?:send_invoice|send_proposal|preview_document_send|get_recipient_defaults|set_recipient_defaults)['"]?:\s*/, '');
+}
 
 function emitCommand<T>(data: T, human: string, opts: BaseCommandOptions): void {
   if (opts.json) emit(data, { json: true, staging: opts.staging });
@@ -363,11 +378,12 @@ export async function invokeToolCall(
   const requirement = requirementFor(classification.level, {
     interactive,
     yes: opts.yes,
-    allowDestructive: opts.allowDestructive,
+    allowDestructive: opts.allowDestructive || hooks.recipientConfirmation,
     readOnlyMode,
   });
+  const needsRecipientYes = hooks.recipientConfirmation && !interactive && !opts.yes && !readOnlyMode;
 
-  if (!requirement.allowed) {
+  if (!requirement.allowed && !needsRecipientYes) {
     throw new CliError(requirement.denialMessage ?? 'Tool call denied by policy.', ExitCode.PERMISSION, 'permission');
   }
 
@@ -377,8 +393,14 @@ export async function invokeToolCall(
   const target = gated ? targetLabel(userinfo, environment) : undefined;
   let locallyConfirmed = opts.yes === true;
 
+  await hooks.beforeConfirmation?.();
+  if (needsRecipientYes) {
+    throw new CliError('Re-run with --yes to send to these recipients.', ExitCode.USAGE, 'usage');
+  }
+
   if (requirement.prompt) {
-    const confirmed = await promptForTool(name, classification.level, requirement.prompt, target);
+    const confirmed = await promptForTool(name, classification.level,
+      hooks.recipientConfirmation ? 'confirm' : requirement.prompt, target);
     if (!confirmed) {
       throw new CliError('Tool call cancelled.', ExitCode.PERMISSION, 'permission');
     }
@@ -400,6 +422,12 @@ export async function invokeToolCall(
       if (classification.level === 'destructive') {
         const timeout = destructiveTimeoutError(err, name);
         if (timeout) throw timeout;
+      }
+      if (err instanceof CliError && err.code === 'generic') {
+        const code = recipientErrorCode(err.message);
+        if (RECIPIENT_ERROR_MESSAGES[code]) {
+          throw new CliError(RECIPIENT_ERROR_MESSAGES[code], err.exitCode, code, err.details);
+        }
       }
       throw err;
     }
@@ -451,6 +479,12 @@ export async function invokeToolCall(
         next_steps: ['every signup status --json', 'every signup complete --org-name "<name>" --yes --json'],
       });
     }
+    // Some server exceptions return only their exact typed code as text.
+    const recipientCode = toolError?.code ?? recipientErrorCode(rawMessage);
+    if (RECIPIENT_ERROR_MESSAGES[recipientCode]) {
+      throw new CliError(RECIPIENT_ERROR_MESSAGES[recipientCode], ExitCode.GENERIC, recipientCode,
+        toolError ? { tool_error: toolError } : undefined);
+    }
     if (toolError) {
       throw new CliError(rawMessage, ExitCode.GENERIC, toolError.code, { tool_error: toolError });
     }
@@ -477,9 +511,11 @@ export async function executeToolCall(
   opts: ToolExecutionOptions = {},
   argsFactory: ArgsFactory = async () => ({}),
   augmentData: DataAugmenter = (data) => data,
+  hooks: InvokeHooks = {},
+  human: (data: ToolCallData) => string = toolCallHuman,
 ): Promise<void> {
-  const data = await augmentData(await invokeToolCall(name, opts, argsFactory));
-  emitCommand(data, toolCallHuman(data), opts);
+  const data = await augmentData(await invokeToolCall(name, opts, argsFactory, hooks));
+  emitCommand(data, human(data), opts);
   await maybeShowSkillHint();
 }
 

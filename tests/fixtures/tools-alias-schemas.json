@@ -360,7 +360,7 @@
         }
        ],
        "default": null,
-       "description": "Discount percent (0–100) or fixed amount, according to discount_type.",
+       "description": "Discount percent (0\u2013100) or fixed amount, according to discount_type.",
        "title": "Discount Applied"
       },
       "discount_type": {
@@ -728,37 +728,60 @@
  {
   "name": "send_invoice",
   "title": "Send invoice",
-  "description": "Send an invoice via email to the client. Sets invoice status to 'issued'.\n\n    IMPORTANT: Only call this when the user explicitly asks to send/email the invoice.\n    Do NOT auto-send after creating \u2014 invoices are created as drafts for review first.\n    This sends a real email to the client's contact email address.\n    ",
+  "description": "Email an invoice to the exact To and CC from preview_document_send. Changed recipients require a new preview.",
   "inputSchema": {
+   "$defs": {
+    "RecipientBinding": {
+     "additionalProperties": false,
+     "type": "object",
+     "title": "RecipientBinding",
+     "properties": {
+      "digest": {
+       "type": "string",
+       "pattern": "^[a-f0-9]{64}$",
+       "description": "Digest returned by preview_document_send; echo unchanged."
+      },
+      "to": {
+       "type": "string",
+       "minLength": 1,
+       "maxLength": 320,
+       "description": "Exact To address shown by the preview and approval."
+      },
+      "cc": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "maxItems": 30,
+       "description": "Exact ordered CC addresses from the preview."
+      }
+     },
+     "required": [
+      "digest",
+      "to"
+     ]
+    }
+   },
+   "type": "object",
+   "title": "send_invoiceArguments",
    "properties": {
     "invoice_id": {
-     "title": "Invoice Id",
      "type": "string"
+    },
+    "recipients": {
+     "$ref": "#/$defs/RecipientBinding"
     }
    },
    "required": [
-    "invoice_id"
-   ],
-   "title": "send_invoiceArguments",
-   "type": "object"
-  },
-  "outputSchema": {
-   "properties": {
-    "result": {
-     "title": "Result",
-     "type": "string"
-    }
-   },
-   "required": [
-    "result"
-   ],
-   "title": "send_invoiceOutput",
-   "type": "object"
+    "invoice_id",
+    "recipients"
+   ]
   },
   "annotations": {
    "readOnlyHint": false,
    "destructiveHint": true,
-   "openWorldHint": true
+   "openWorldHint": true,
+   "idempotentHint": false
   }
  },
  {
@@ -800,6 +823,275 @@
   "_meta": {
    "openai/toolInvocation/invoking": "Asking your Every assistant...",
    "openai/toolInvocation/invoked": "Assistant answered"
+  }
+ },
+ {
+  "name": "send_proposal",
+  "title": "Send proposal",
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": true,
+   "idempotentHint": false,
+   "openWorldHint": true
+  },
+  "description": "Email a proposal to the exact To and CC from preview_document_send. Changed recipients require a new preview.",
+  "outputSchema": {
+   "type": "object",
+   "properties": {
+    "result": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "result"
+   ]
+  },
+  "inputSchema": {
+   "$defs": {
+    "RecipientBinding": {
+     "additionalProperties": false,
+     "type": "object",
+     "title": "RecipientBinding",
+     "properties": {
+      "digest": {
+       "type": "string",
+       "pattern": "^[a-f0-9]{64}$",
+       "description": "Digest returned by preview_document_send; echo unchanged."
+      },
+      "to": {
+       "type": "string",
+       "minLength": 1,
+       "maxLength": 320,
+       "description": "Exact To address shown by the preview and approval."
+      },
+      "cc": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "maxItems": 30,
+       "description": "Exact ordered CC addresses from the preview."
+      }
+     },
+     "required": [
+      "digest",
+      "to"
+     ]
+    }
+   },
+   "type": "object",
+   "title": "send_proposalArguments",
+   "properties": {
+    "proposal_id": {
+     "type": "string"
+    },
+    "recipients": {
+     "$ref": "#/$defs/RecipientBinding"
+    },
+    "message": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "required": [
+    "proposal_id",
+    "recipients"
+   ]
+  }
+ },
+ {
+  "name": "preview_document_send",
+  "inputSchema": {
+   "type": "object",
+   "title": "preview_document_sendArguments",
+   "properties": {
+    "document_kind": {
+     "type": "string",
+     "enum": [
+      "invoice",
+      "proposal"
+     ]
+    },
+    "document_id": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "document_kind",
+    "document_id"
+   ]
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": false
+  }
+ },
+ {
+  "name": "get_recipient_defaults",
+  "inputSchema": {
+   "type": "object",
+   "title": "get_recipient_defaultsArguments",
+   "properties": {
+    "document_kind": {
+     "type": "string",
+     "enum": [
+      "invoice",
+      "proposal"
+     ]
+    },
+    "party_kind": {
+     "type": "string",
+     "enum": [
+      "person",
+      "company"
+     ]
+    },
+    "party_id": {
+     "type": "string",
+     "format": "uuid"
+    },
+    "kind": {
+     "anyOf": [
+      {
+       "type": "string",
+       "enum": [
+        "invoice",
+        "proposal"
+       ]
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "required": [
+    "document_kind",
+    "party_kind",
+    "party_id"
+   ]
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": false
+  }
+ },
+ {
+  "name": "set_recipient_defaults",
+  "inputSchema": {
+   "type": "object",
+   "title": "set_recipient_defaultsArguments",
+   "properties": {
+    "document_kind": {
+     "type": "string",
+     "enum": [
+      "invoice",
+      "proposal"
+     ]
+    },
+    "party_kind": {
+     "type": "string",
+     "enum": [
+      "person",
+      "company"
+     ]
+    },
+    "party_id": {
+     "type": "string",
+     "format": "uuid"
+    },
+    "kind": {
+     "anyOf": [
+      {
+       "type": "string",
+       "enum": [
+        "invoice",
+        "proposal"
+       ]
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "command": {
+     "$ref": "#/$defs/RecipientDefaultsCommand"
+    }
+   },
+   "required": [
+    "document_kind",
+    "party_kind",
+    "party_id",
+    "command"
+   ],
+   "$defs": {
+    "RecipientDefaultsCommand": {
+     "type": "object",
+     "title": "RecipientDefaultsCommand",
+     "additionalProperties": false,
+     "properties": {
+      "operation_id": {
+       "type": "string",
+       "format": "uuid"
+      },
+      "expected_version": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "to_method_id": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "uuid"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null
+      },
+      "cc_method_ids": {
+       "type": "array",
+       "items": {
+        "type": "string",
+        "format": "uuid"
+       },
+       "maxItems": 30
+      },
+      "none_method_ids": {
+       "type": "array",
+       "items": {
+        "type": "string",
+        "format": "uuid"
+       },
+       "maxItems": 60
+      }
+     },
+     "required": [
+      "operation_id",
+      "expected_version"
+     ]
+    }
+   }
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": false
   }
  }
 ]

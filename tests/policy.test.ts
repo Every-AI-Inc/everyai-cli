@@ -257,6 +257,11 @@ describe('policy classification', () => {
 });
 
 describe('policy requirements', () => {
+  it.each(['send_invoice', 'send_proposal'])('keeps %s destructive even if annotations change', (name) => {
+    expect(classify({ name, readOnly: true, destructive: false })).toMatchObject({
+      level: 'destructive', source: 'override',
+    });
+  });
   it('requires --yes for non-interactive writes', () => {
     expect(requirementFor('write', { interactive: false })).toMatchObject({
       allowed: false,

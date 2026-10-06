@@ -10,6 +10,10 @@ import { INVALID_API_KEY, VALID_API_KEY } from './helpers/mock-mcp-fetch.mjs';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const entrypoint = path.join(repoRoot, 'src', 'index.ts');
 const mockPreload = path.join(repoRoot, 'tests', 'helpers', 'mock-mcp-fetch.mjs');
+const recipientFixtures = JSON.parse(readFileSync(path.join(repoRoot, 'tests/fixtures/recipient-envelopes.json'), 'utf8'));
+const previewCall = { name: 'preview_document_send', arguments: { document_kind: 'invoice', document_id: 'inv_123' } };
+const invoiceSendCall = { name: 'send_invoice', arguments: { invoice_id: 'inv_123', recipients: recipientFixtures.preview.recipients } };
+
 
 interface CliResult {
   code: number | null;
@@ -1069,7 +1073,7 @@ describe('CLI contract', () => {
         },
       });
       expect(server.toolCalls).toEqual([
-        { name: 'send_invoice', arguments: { invoice_id: 'inv_123' } },
+        previewCall, invoiceSendCall,
       ]);
     } finally {
       await server.close();
@@ -1107,15 +1111,15 @@ describe('CLI contract', () => {
         },
       });
       expect(server.toolCalls).toEqual([
-        { name: 'send_invoice', arguments: { invoice_id: 'inv_123' } },
+        previewCall, invoiceSendCall,
       ]);
 
       const approvedRetry = await runCli(command, mockEnv(server, configDir));
 
       expect(approvedRetry.code).toBe(0);
       expect(server.toolCalls).toEqual([
-        { name: 'send_invoice', arguments: { invoice_id: 'inv_123' } },
-        { name: 'send_invoice', arguments: { invoice_id: 'inv_123' } },
+        previewCall, invoiceSendCall,
+        previewCall, invoiceSendCall,
       ]);
     } finally {
       await server.close();
@@ -1307,10 +1311,6 @@ describe('CLI contract', () => {
       { name: 'list_invoices', arguments: { payment_status: 'overdue', search: 'acme', limit: 3 } },
     ],
     [
-      ['invoice', 'send', 'inv_123', '--yes', '--allow-destructive', '--json'],
-      { name: 'send_invoice', arguments: { invoice_id: 'inv_123' } },
-    ],
-    [
       ['deal', 'list', '--stage', 'opportunity', '--search', 'acme', '--limit', '4', '--json'],
       { name: 'list_deals', arguments: { stage: 'opportunity', search: 'acme', limit: 4 } },
     ],
@@ -1382,23 +1382,174 @@ describe('CLI contract', () => {
     }
   });
 
-  it('keeps the destructive gate on invoice send aliases', async () => {
+  it('requires --yes after the invoice recipient preview without a TTY', async () => {
     const server = await createMockMcpServer();
     const configDir = await tempConfig();
     try {
       const result = await runCli(['invoice', 'send', 'inv_123', '--json'], mockEnv(server, configDir));
 
-      expect(result.code).toBe(4);
-      expect(result.stderr).toBe('');
+      expect(result.code).toBe(2);
+      expect(result.stderr).toContain('To: Alex To <To.Exact@example.test>');
       expect(parseJsonStdout(result.stdout)).toMatchObject({
         ok: false,
-        error: { code: 'permission' },
+        error: { code: 'usage', message: expect.stringContaining('--yes') },
       });
-      expect(server.toolCalls).toHaveLength(0);
+      expect(server.toolCalls).toEqual([previewCall]);
     } finally {
       await server.close();
       await rm(configDir, { recursive: true, force: true });
     }
+  });
+
+  it.each(['invoice', 'proposal'])('previews and sends a %s with the exact server binding and --yes alone', async (kind) => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli([kind, 'send', 'doc_123', '--yes', '--json'], mockEnv(server, configDir));
+      expect(result.code).toBe(0);
+      expect(server.toolCalls).toEqual([
+        { name: 'preview_document_send', arguments: { document_kind: kind, document_id: 'doc_123' } },
+        { name: `send_${kind}`, arguments: { [`${kind}_id`]: 'doc_123', recipients: recipientFixtures.preview.recipients } },
+      ]);
+      expect(result.stderr).toContain('To: Alex To <To.Exact@example.test>\nCC: Blair Second <second@example.test>\nCC: Casey First <first@example.test>\n');
+      expect(parseJsonStdout(result.stdout)).toMatchObject({ ok: true, schema_version: 1, env: 'custom',
+        data: { tool: `send_${kind}`, preview: { recipients: recipientFixtures.preview.recipients } } });
+    } finally { await server.close(); await rm(configDir, { recursive: true, force: true }); }
+  });
+
+  it('shows CC: none and exact addresses when optional names are unavailable', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const preview = { ...recipientFixtures.preview, recipient_details: null,
+        recipients: { ...recipientFixtures.preview.recipients, cc: [] } };
+      const result = await runCli(['proposal', 'send', 'doc_123', '--json'], mockEnv(server, configDir, {
+        EVERYAI_MOCK_TOOL_RESULTS: JSON.stringify({ preview_document_send: { structuredContent: preview } }),
+      }));
+      expect(result.code).toBe(2);
+      expect(result.stderr).toBe('To: Name unavailable <To.Exact@example.test>\nCC: none\n');
+      expect(server.toolCalls.map((call) => call.name)).toEqual(['preview_document_send']);
+    } finally { await server.close(); await rm(configDir, { recursive: true, force: true }); }
+  });
+
+  it.each([
+    ['send_invoice', 'send_preparation_stale', 'Run the command again to see the new recipients.'],
+    ['preview_document_send', 'recipient_required', 'Choose a To recipient'],
+    ['preview_document_send', 'recipient_model_quiet', 'paused'],
+    ['preview_document_send', 'recipient_model_unavailable', 'unavailable'],
+  ])('maps %s refusal %s into the error envelope without a send retry', async (tool, code, message) => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli(['invoice', 'send', 'inv_123', '--yes', '--json'], mockEnv(server, configDir, {
+        EVERYAI_MOCK_TOOL_RESULTS: JSON.stringify({ [tool]: {
+          isError: true, content: [{ type: 'text', text: 'Server refusal.' }],
+          structuredContent: { error: { code, message: 'Server refusal.', detail: 'preserved' } },
+        } }),
+      }));
+      expect(result.code).toBe(1);
+      expect(parseJsonStdout(result.stdout)).toMatchObject({ ok: false, schema_version: 1,
+        error: { code, message: expect.stringContaining(message), tool_error: { detail: 'preserved' } } });
+      expect(server.toolCalls).toEqual(tool === 'send_invoice' ? [previewCall, invoiceSendCall] : [previewCall]);
+    } finally { await server.close(); await rm(configDir, { recursive: true, force: true }); }
+  });
+
+  it('maps the server stale exception text and never refreshes automatically', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli(['invoice', 'send', 'inv_123', '--yes', '--json'], mockEnv(server, configDir, {
+        EVERYAI_MOCK_TOOL_RESULTS: JSON.stringify({ send_invoice: {
+          isError: true, content: [{ type: 'text', text: 'Error executing tool send_invoice: send_preparation_stale' }],
+        } }),
+      }));
+      expect(result.code).toBe(1);
+      expect(parseJsonStdout(result.stdout)).toMatchObject({ error: { code: 'send_preparation_stale',
+        message: expect.stringContaining('Run the command again') } });
+      expect(server.toolCalls).toEqual([previewCall, invoiceSendCall]);
+    } finally { await server.close(); await rm(configDir, { recursive: true, force: true }); }
+  });
+
+  it('refuses a malformed binding instead of manufacturing one', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli(['invoice', 'send', 'inv_123', '--yes', '--json'], mockEnv(server, configDir, {
+        EVERYAI_MOCK_TOOL_RESULTS: JSON.stringify({ preview_document_send: { structuredContent: {
+          ...recipientFixtures.preview, recipients: { ...recipientFixtures.preview.recipients, cc: undefined },
+        } } }),
+      }));
+      expect(result.code).toBe(1);
+      expect(parseJsonStdout(result.stdout)).toMatchObject({ ok: false });
+      expect(server.toolCalls).toEqual([previewCall]);
+    } finally { await server.close(); await rm(configDir, { recursive: true, force: true }); }
+  });
+
+  it.each(['invoice', 'proposal'])('gets exact %s recipient defaults for a typed Person', async (kind) => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli(['recipients', 'get', 'Alex', '--person-id', 'person_123', '--kind', kind], mockEnv(server, configDir));
+      expect(result.code).toBe(0);
+      expect(result.stdout).toBe('To: Alex To <To.Exact@example.test>\nCC: Blair Second <second@example.test>\nCC: Casey First <first@example.test>\n');
+      expect(server.toolCalls).toEqual([{ name: 'get_recipient_defaults', arguments: {
+        party_kind: 'person', party_id: 'person_123', document_kind: kind, kind,
+      } }]);
+    } finally { await server.close(); await rm(configDir, { recursive: true, force: true }); }
+  });
+
+  it.each([
+    ['invoice', [], ['00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000004']],
+    ['proposal', ['--clear-cc'], []],
+    ['proposal', ['--cc', 'first@example.test', '--cc', '00000000-0000-4000-8000-000000000003'],
+      ['00000000-0000-4000-8000-000000000004', '00000000-0000-4000-8000-000000000003']],
+  ])('sets %s defaults with versioned method IDs and CC flags %s', async (kind, flags, ccIds) => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli(['recipients', 'set', 'Acme', '--company-id', 'client_123', '--kind', kind,
+        '--to', 'To.Exact@example.test', ...flags, '--yes', '--json'], mockEnv(server, configDir, { EVERYAI_MOCK_CONFIRMATION_GATE: '1' }));
+      expect(result.code).toBe(0);
+      expect(parseJsonStdout(result.stdout)).toMatchObject({ ok: true, schema_version: 1,
+        data: { tool: 'set_recipient_defaults', structured_content: { cc_method_ids: ccIds } } });
+      const partyArgs = { party_kind: 'company', party_id: 'client_123', document_kind: kind, kind };
+      expect(server.toolCalls[0]).toEqual({ name: 'get_recipient_defaults', arguments: partyArgs });
+      expect(server.toolCalls[1]).toMatchObject({ name: 'set_recipient_defaults', arguments: { ...partyArgs, command: {
+        operation_id: expect.stringMatching(/^[a-f0-9-]{36}$/), expected_version: 3,
+        to_method_id: '00000000-0000-4000-8000-000000000002', cc_method_ids: ccIds,
+      } } });
+      expect(server.toolCalls[1].arguments.command).not.toHaveProperty('none_method_ids');
+      expect(server.toolCalls).toHaveLength(3);
+      expect(server.toolCalls[2].arguments.command).toEqual(server.toolCalls[1].arguments.command);
+      expect(server.toolCalls[2].arguments.confirmation).toBeTruthy();
+    } finally { await server.close(); await rm(configDir, { recursive: true, force: true }); }
+  });
+
+  it('resolves a Company name through the existing fuzzy resolver', async () => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli(['recipients', 'get', 'Acme', '--kind', 'invoice', '--json'],
+        mockEnv(server, configDir, { EVERYAI_MOCK_LIST_COMPANIES_JSON: JSON.stringify([{ client_id: 'client_123', name: 'Acme' }]) }));
+      expect(result.code).toBe(0);
+      expect(server.toolCalls.map((call) => call.name)).toEqual(['list_companies', 'list_people', 'get_recipient_defaults']);
+      expect(server.toolCalls[2].arguments).toMatchObject({ party_kind: 'company', party_id: 'client_123', kind: 'invoice' });
+    } finally { await server.close(); await rm(configDir, { recursive: true, force: true }); }
+  });
+
+  it.each([
+    ['invoice', 'send', 'inv_123', '--read-only', '--yes'],
+    ['recipients', 'set', 'Acme', '--kind', 'invoice', '--to', 'To.Exact@example.test'],
+    ['recipients', 'set', 'Acme', '--kind', 'invoice', '--to', 'To.Exact@example.test', '--read-only', '--yes'],
+  ])('keeps policy denials before prerequisite calls for %s', async (...args) => {
+    const server = await createMockMcpServer();
+    const configDir = await tempConfig();
+    try {
+      const result = await runCli([...args, '--json'], mockEnv(server, configDir));
+      expect(result.code).toBe(4);
+      expect(parseJsonStdout(result.stdout)).toMatchObject({ ok: false, error: { code: 'permission' } });
+      expect(server.toolCalls).toEqual([]);
+    } finally { await server.close(); await rm(configDir, { recursive: true, force: true }); }
   });
 
   it('renders the same JSON envelope for an alias and equivalent tool call', async () => {
