@@ -4,6 +4,7 @@ import { CliError } from '../lib/errors.js';
 import { ExitCode } from '../lib/exit-codes.js';
 import { callTool, listTools, McpTool } from '../lib/mcp.js';
 import { emit } from '../lib/output.js';
+import { recipientBinding, recipientLines } from '../lib/recipients.js';
 import {
   Classification,
   classify,
@@ -523,5 +524,15 @@ export async function toolCallCommand(
   name: string,
   opts: ToolCallOptions = {},
 ): Promise<void> {
+  if (name === 'send_invoice' || name === 'send_proposal') {
+    const args = await assembleArgs(opts);
+    const binding = recipientBinding(args.recipients, 'argument');
+    await executeToolCall(name, opts, async () => args, undefined, {
+      beforeConfirmation: async () => {
+        process.stderr.write(`${recipientLines({ recipients: binding })}\n`);
+      },
+    });
+    return;
+  }
   await executeToolCall(name, opts, () => assembleArgs(opts));
 }

@@ -29,6 +29,7 @@ function isOverridden(name: string): boolean {
     name === 'set_deal_name' ||
     name === 'link_deal_item' ||
     name === 'unlink_deal_item' ||
+    name === 'set_recipient_defaults' ||
     /^delete_|^void_|^send_|^cancel_/.test(name)
   );
 }
@@ -257,6 +258,17 @@ describe('policy classification', () => {
 });
 
 describe('policy requirements', () => {
+  it('pins recipient changes to destructive policy regardless of annotations', () => {
+    for (const metadata of [{}, { readOnly: true, destructive: false },
+      { annotations: { readOnlyHint: true, destructiveHint: false } }]) {
+      expect(classify({ name: 'set_recipient_defaults', ...metadata })).toMatchObject({
+        level: 'destructive', source: 'override',
+      });
+    }
+    expect(requirementFor('destructive', { interactive: false, yes: true })).toMatchObject({ allowed: false });
+    expect(requirementFor('destructive', { interactive: true })).toMatchObject({ prompt: 'typed' });
+    expect(requirementFor('destructive', { interactive: false, yes: true, allowDestructive: true })).toEqual({ allowed: true });
+  });
   it.each(['send_invoice', 'send_proposal'])('keeps %s destructive even if annotations change', (name) => {
     expect(classify({ name, readOnly: true, destructive: false })).toMatchObject({
       level: 'destructive', source: 'override',

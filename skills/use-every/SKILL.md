@@ -139,7 +139,7 @@ Conversion creates a linked DRAFT invoice. Review the returned invoice ID, then 
 
 ```bash
 every tool call view_invoice --arg identifier=<invoice_id> --json
-every invoice send <invoice_id> --yes --allow-destructive --json
+every invoice send <invoice_id> --expect-digest <preview_digest> --yes --json
 ```
 
 ### Voiding an invoice
@@ -150,14 +150,14 @@ every invoice send <invoice_id> --yes --allow-destructive --json
 
 Call `preview_document_send` before approval. Show the exact To and CC first, with one name and exact email per line. Show `CC: none` if empty. Never add a CC without a request.
 
-The invoice and proposal send aliases preview recipients, then require a yes/no confirmation or `--yes`. The CLI sends the server's `{digest, to, cc}` unchanged. Direct send tools require that exact `recipients` object and both destructive flags. If the preview is stale, request approval for the new recipients.
+After the owner approves those recipients, send with `--expect-digest <preview_digest>` and `--yes`. Both send aliases compare a fresh preview with that digest. A mismatch stops the send and shows the new recipients. Get approval for the new preview before another send. Direct send tools require the exact approved `{digest, to, cc}` binding and both destructive flags.
 
 ### Invoice re-sends
 
 `send_invoice` re-sends the invoice email itself; it does not send custom reminder copy. For an overdue follow-up, confirm with the user, re-send the invoice, and give any custom message separately for the user to send:
 
 ```bash
-every invoice send <invoice_id> --yes --allow-destructive --json
+every invoice send <invoice_id> --expect-digest <preview_digest> --yes --json
 ```
 
 ### Gmail is draft-first
@@ -241,7 +241,7 @@ Convert an accepted proposal:
 every tool call view_proposal --arg identifier=<proposal_id> --json
 every tool call convert_proposal_to_invoice --arg proposal_id=<proposal_id> --yes --json
 every tool call view_invoice --arg identifier=<invoice_id> --json
-every invoice send <invoice_id> --yes --allow-destructive --json
+every invoice send <invoice_id> --expect-digest <preview_digest> --yes --json
 ```
 
 Stop if the proposal is not issued/approved. Review the linked draft and obtain approval before sending.

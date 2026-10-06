@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { CliError } from '../lib/errors.js';
 import { ExitCode } from '../lib/exit-codes.js';
-import { documentKind, DocumentKind, record, recipientBinding, RecipientBinding, recipientLines } from '../lib/recipients.js';
+import { documentKind, DocumentKind, preservedExclusions, record, recipientBinding, RecipientBinding, recipientLines } from '../lib/recipients.js';
 import {
   executeToolCall,
   invokeToolCall,
@@ -24,7 +24,9 @@ interface DealListOptions extends ListOptions {
 
 interface PersonListOptions extends ListOptions {}
 
-interface InvoiceSendOptions extends ToolExecutionOptions {}
+interface DocumentSendOptions extends ToolExecutionOptions {
+  expectDigest?: string;
+}
 
 interface RecipientsOptions extends InvoiceCreateOptions {
   kind?: string;
@@ -423,16 +425,19 @@ export async function invoiceListCommand(opts: InvoiceListOptions = {}): Promise
 
 export async function invoiceSendCommand(
   invoiceId: string,
-  opts: InvoiceSendOptions = {},
+  opts: DocumentSendOptions = {},
 ): Promise<void> {
   await documentSendCommand('invoice', invoiceId, opts);
 }
 
-export async function proposalSendCommand(proposalId: string, opts: ToolExecutionOptions = {}): Promise<void> {
+export async function proposalSendCommand(proposalId: string, opts: DocumentSendOptions = {}): Promise<void> {
   await documentSendCommand('proposal', proposalId, opts);
 }
 
-async function documentSendCommand(kind: DocumentKind, id: string, opts: ToolExecutionOptions): Promise<void> {
+async function documentSendCommand(kind: DocumentKind, id: string, opts: DocumentSendOptions): Promise<void> {
+  if (opts.expectDigest !== undefined && !/^[a-f0-9]{64}$/.test(opts.expectDigest)) {
+    throw new CliError('--expect-digest must be the 64-character digest from the approved preview.', ExitCode.USAGE, 'usage');
+  }
   let preview: Record<string, unknown> = {};
   let binding: RecipientBinding;
   await executeToolCall(`send_${kind}`, opts, async () => ({ [`${kind}_id`]: id, recipients: binding }),
@@ -442,8 +447,16 @@ async function documentSendCommand(kind: DocumentKind, id: string, opts: ToolExe
         const result = await invokeToolCall('preview_document_send', opts,
           async () => ({ document_kind: kind, document_id: id }));
         preview = record(result.structured_content);
+        if (preview.document_id !== id || preview.document_kind !== kind) {
+          throw new CliError('The server returned a preview for a different document or kind. No document was sent.',
+            ExitCode.GENERIC, 'send_preview_mismatch');
+        }
         binding = recipientBinding(preview.recipients);
         process.stderr.write(`${recipientLines(preview)}\n`);
+        if (opts.expectDigest !== undefined && binding.digest !== opts.expectDigest) {
+          throw new CliError('The recipient digest does not match --expect-digest. Review these recipients and get approval before you send again.',
+            ExitCode.GENERIC, 'send_preparation_stale', { expected_digest: opts.expectDigest, actual_digest: binding.digest });
+        }
       },
     });
 }
@@ -489,6 +502,7 @@ export async function recipientsSetCommand(party: string, opts: RecipientsOption
       if (!Number.isInteger(defaults.version) || Number(defaults.version) < 0 || !Array.isArray(defaults.eligible_methods)) {
         throw new CliError('The server returned invalid recipient defaults. No defaults were changed.');
       }
+      const noneIds = preservedExclusions(defaults);
       const methods = defaults.eligible_methods.map(record);
       const toId = resolveRecipientMethod(to, methods);
       const currentCc = record(defaults.effective).cc_method_ids ?? defaults.cc_method_ids;
@@ -501,6 +515,10 @@ export async function recipientsSetCommand(party: string, opts: RecipientsOption
       if (ccIds.includes(toId) || new Set(ccIds).size !== ccIds.length) {
         throw new CliError('Select each recipient once. To and CC must use different methods.', ExitCode.USAGE, 'usage');
       }
+      if ([toId, ...ccIds].some((id) => noneIds.includes(id))) {
+        throw new CliError('A selected method is excluded. This command preserves exclusions. Change the exclusion explicitly before you select it.',
+          ExitCode.USAGE, 'usage');
+      }
       const selected = [toId, ...ccIds].map((id) => {
         resolveRecipientMethod(id, methods);
         return methods.find((method) => method.id === id)!;
@@ -508,6 +526,7 @@ export async function recipientsSetCommand(party: string, opts: RecipientsOption
       args = { ...partyArgs, command: {
         operation_id: randomUUID(), expected_version: defaults.version,
         to_method_id: toId, cc_method_ids: ccIds,
+        none_method_ids: noneIds,
       } };
       process.stderr.write(`${recipientLines({ eligible_methods: methods, recipient_preview: {
         to: selected[0].delivery_address,

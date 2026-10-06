@@ -109,6 +109,14 @@ function overrideClassification(name: string): Classification | undefined {
     };
   }
 
+  if (name === 'set_recipient_defaults') {
+    return {
+      level: 'destructive',
+      source: 'override',
+      reason: 'set_recipient_defaults changes the audience for future document sends. Require destructive confirmation regardless of server annotations.',
+    };
+  }
+
   // approve_prospect is the owner/bookkeeper review action next to
   // approve_pending_deal (the path open to API keys); pin it the same way.
   if (name === 'approve_prospect') {

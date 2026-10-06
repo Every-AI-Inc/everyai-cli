@@ -469,18 +469,27 @@ export function installMockMcpFetch(mockBaseUrl, mockStateFile, visitCallback = 
           result: { content: [{ type: 'text', text: 'Preview only.' }], structuredContent: preview } });
       }
       if (name === 'get_recipient_defaults') {
+        const key = JSON.stringify([args.party_kind, args.party_id, args.kind ?? args.document_kind]);
+        const defaults = readState().recipientDefaults?.[key] ?? recipientEnvelopes.defaults;
+        const modelState = process.env.EVERYAI_MOCK_RECIPIENT_MODEL_STATE;
         return response({ jsonrpc: '2.0', id: body.id,
-          result: { content: [{ type: 'text', text: 'Recipient defaults.' }], structuredContent: recipientEnvelopes.defaults } });
+          result: { content: [{ type: 'text', text: 'Recipient defaults.' }],
+            structuredContent: { ...defaults, ...(modelState ? { model_state: modelState } : {}) } } });
       }
       if (name === 'set_recipient_defaults') {
-        const defaults = structuredClone(recipientEnvelopes.defaults);
-        const command = handlerArgs.command;
+        const state = readState();
+        const key = JSON.stringify([args.party_kind, args.party_id, args.kind ?? args.document_kind]);
+        const defaults = structuredClone(state.recipientDefaults?.[key] ?? recipientEnvelopes.defaults);
+        // Store the whole command. Omitted exclusions become [] on the v1 server.
+        const command = { cc_method_ids: [], none_method_ids: [], ...handlerArgs.command };
         const method = (id) => defaults.eligible_methods.find((entry) => entry.id === id);
-        defaults.to_method_id = command.to_method_id;
-        defaults.cc_method_ids = command.cc_method_ids;
+        Object.assign(defaults, command, { command, version: command.expected_version + 1 });
         defaults.recipient_preview.to = method(command.to_method_id).delivery_address;
         defaults.recipient_preview.cc = command.cc_method_ids.map((id) => method(id).delivery_address);
+        defaults.effective = { to_method_id: command.to_method_id, cc_method_ids: command.cc_method_ids };
         delete defaults.recipient_details;
+        state.recipientDefaults = { ...state.recipientDefaults, [key]: defaults };
+        writeState(state);
         return response({ jsonrpc: '2.0', id: body.id,
           result: { content: [{ type: 'text', text: 'Recipient defaults saved.' }], structuredContent: defaults } });
       }

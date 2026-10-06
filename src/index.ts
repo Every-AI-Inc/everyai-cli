@@ -395,6 +395,7 @@ withGlobalOptions(
     invoiceCommand
       .command('send')
       .description('Preview recipients, confirm, and send an invoice')
+      .option('--expect-digest <digest>', 'require the digest from the approved recipient preview')
       .argument('<invoice_id>', 'invoice id'),
   ),
 ).action(async (invoiceId: string, _options: unknown, command: Command) => {
@@ -407,6 +408,7 @@ withGlobalOptions(
     allowDestructive: opts.allowDestructive,
     readOnly: opts.readOnly,
     timeout: opts.timeout,
+    expectDigest: opts.expectDigest,
   });
 });
 
@@ -415,6 +417,7 @@ const proposalCommand = withToolExecutionOptions(withGlobalOptions(
 ));
 withGlobalOptions(withToolExecutionOptions(
   proposalCommand.command('send').description('Preview recipients, confirm, and send a proposal')
+    .option('--expect-digest <digest>', 'require the digest from the approved recipient preview')
     .argument('<proposal>', 'proposal id'),
 )).action(async (proposal: string, _options: unknown, command: Command) => {
   const opts = command.optsWithGlobals();
