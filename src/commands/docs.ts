@@ -39,9 +39,17 @@ function commandLine(command: Command, parents: string[]): string {
   return parts.join(' ').replace(/\s+/g, ' ').trim();
 }
 
+// Deprecated aliases (e.g. `every contact`) are registered hidden; like hidden
+// options, they stay out of the offline docs so agents learn only current names.
+function isHidden(command: Command): boolean {
+  return (command as Command & { _hidden?: boolean })._hidden === true;
+}
+
 function walkCommands(command: Command, parents: string[] = []): string[] {
   const line = commandLine(command, parents);
-  const children = command.commands.flatMap((child) => walkCommands(child, [...parents, command.name()]));
+  const children = command.commands
+    .filter((child) => !isHidden(child))
+    .flatMap((child) => walkCommands(child, [...parents, command.name()]));
   return [line, ...children];
 }
 
@@ -54,6 +62,8 @@ export function conventionsBlock(): string {
     'JSON envelope:',
     '  Success: {"ok":true,"data":...,"env":"production|staging|custom","schema_version":1}',
     '  Error:   {"ok":false,"error":{"message":"...","code":"..."},"env":"production|staging|custom","schema_version":1}',
+    '  every signup --json is NDJSON: {"event":"authorization_required","url":...},',
+    '    {"event":"waiting_for_authorization","browser_opened":...}, then the envelope as the last line.',
     '',
     'Exit codes:',
     '  0 ok',
@@ -62,7 +72,7 @@ export function conventionsBlock(): string {
     '  3 auth',
     '  4 permission/confirmation needed',
     '  5 rate limited',
-    '  6 not found',
+    '  6 not found (code signup_unsupported: the server has no agent signup yet)',
     '  7 network/timeout',
     '',
     'Safety tiers:',
@@ -78,7 +88,7 @@ export function conventionsBlock(): string {
     '  every tool call <name> --args file.json',
     '',
     'Environment:',
-    '  EVERY_TOKEN skips browser login for headless use.',
+    '  EVERY_TOKEN skips browser login for headless use; it never creates an account (use every signup).',
     '  Target precedence: --staging > EVERY_MCP_URL > EVERY_ENV=staging|production > production.',
   ].join('\n');
 }

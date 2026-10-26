@@ -7,7 +7,8 @@ Install once, log in once, and teach each coding agent the same `every` command 
 ```bash
 npm install -g @everyai/cli
 every docs                         # offline command tree, output contract, workflows
-every login                        # pick "Create an account" if you're new — signup happens in the browser, then the CLI connects automatically
+every signup                       # new to Every? one browser step creates your account (an agent can run this for you)
+every login                        # existing users at an interactive terminal
 every skills install claude|codex  # teach Claude Code or Codex how to use Every
 every whoami                       # user, org, environment, tool-count check
 ```
@@ -17,7 +18,7 @@ One-shot invoice example with inline args:
 ```bash
 every invoice list --status overdue --json
 every tool call create_invoice \
-  --arg command='{"operation_id":"<uuid>","party":{"kind":"company","id":"client_123"},"line_items":[{"description":"Strategy work","quantity":1,"unit_price":1500}]}' \
+  --arg command='{"operation_id":"<uuid>","party":{"kind":"company","id":"<company_id>"},"line_items":[{"description":"Strategy work","quantity":1,"unit_price":1500}]}' \
   --yes \
   --json
 ```
@@ -47,7 +48,11 @@ The CLI talks to the same Every MCP server (`admin-mcp.every.ai`) and inherits i
 
 ```bash
 # Auth
-every login [--create-account] [--org <name|slug|id>] [--staging]  # browser OAuth; keychain storage; refresh handled
+every signup [--timeout <seconds>]   # new account or sign-in via one browser step; works without a TTY
+every signup status
+every signup complete --org-name <name> [--description <text>] [--link <url> ...] --yes
+every login [--org <name|slug|id>] [--staging]  # browser OAuth; keychain storage; refresh handled
+                                              # (--create-account is a deprecated alias for every signup)
 every logout | whoami | auth status
 every org [switch --org <name|slug|id>]
 
@@ -62,20 +67,36 @@ every tool call <name> [--args file.json|-] [--arg k=v ...] [--yes] [--allow-des
 
 # Curated aliases (same gates, nicer flags)
 every invoice list [--status <s>] [--search <q>] [--limit <n>]
+every invoice create (--company <name> | --person <name> | --company-id <id> | --person-id <id>) --amount <n>
+                                           # write: needs --yes
 every invoice send <invoice_id>            # destructive: needs --yes --allow-destructive
 every deal stages                          # this workspace's stages: label, key, role, criteria
 every deal list [--stage <s>] [--search <q>]   # <s>: a stage key or label
 every deal move <deal_id> <stage>          # write: needs --yes; stage = key or label
-every contact list [--search <q>]
+every person list [--search <q>]           # People
 
 # Teach your coding agent to use all of this well
 every skills install claude    # → .claude/skills/use-every/
 every skills install codex     # → .agents/skills/use-every/
 ```
 
-## Login and account creation
+Deprecated aliases still work and print a one-line note to stderr: `every contact list` (use `every person list`) and `every invoice create --client <name>` / `--client-id <id>` (use `--company`, `--company-id` or `--person-id`). They are hidden from help and `every docs`.
 
-Run `every login` to choose between logging in and creating an account, or use `every login --create-account` to open Every's signup page directly. After you create your account and workspace, return to the terminal and press Enter; the CLI connects through the normal browser OAuth flow.
+## Signing up
+
+`every signup` creates an Every account, or signs an existing user in, through a single browser authorization. It never opens a separate sign-up page and never waits for Enter, so a coding agent can run it on the user's behalf without a TTY:
+
+1. It prints the authorization URL first, tries to open the browser, then waits on a local loopback callback for up to `--timeout` seconds (default 300). With `--json`, stdout is NDJSON: `{"event":"authorization_required","url":"..."}`, then `{"event":"waiting_for_authorization","browser_opened":true|false,"timeout_seconds":300}`, then the usual envelope as the last line. If `browser_opened` is false, open the printed URL yourself.
+2. After the browser step it reports the server's signup status: `signup_status` is `ready` for an account that is good to go, or `needs_profile` with the one required field (`organization_name`) and unverified `profile_suggestions` to confirm with the user.
+3. `every signup complete --org-name "<name>" [--description "<text>"] [--link <https url> ...] --yes` saves the confirmed profile and returns `account_ready: true`. Background setup (Business DNA and friends) is reported separately and never blocks the account. It is an ordinary write: `--yes` when non-interactive, never `--allow-destructive`.
+
+`every signup status` re-reads the state at any time. Signup commands always fetch a fresh tool list. A server without agent signup yields exit `6` with `error.code: "signup_unsupported"` ("this server does not support agent signup yet"). Denials and timeouts exit `3`; rerun `every signup`. While signup is unfinished, other tools are refused with `error.code: "signup_incomplete"`, and the CLI says which commands finish it. `EVERY_TOKEN` is never a signup path.
+
+The CLI sends the RFC 8707 `resource` parameter (the MCP server's canonical URL from its protected-resource metadata) on the authorization request, the code exchange and every refresh.
+
+After a successful `every signup` or `every login`, the CLI updates any copy of the `use-every` skill it installed earlier whose revision stamp is older than the bundled one. It never installs a copy where none exists and skips symlinked installs.
+
+`every login` remains the interactive login for existing users; `every login --create-account` still works as a deprecated alias for `every signup`.
 
 ## Switching workspaces
 
@@ -90,7 +111,7 @@ Every command supports `--json`: exactly one JSON document on stdout, nothing el
 { "ok": false, "error": { "message": "...", "code": "..." }, "env": "production", "schema_version": 1 }
 ```
 
-Exit codes: `0` ok · `1` tool/generic error · `2` usage · `3` auth (run `every login`) · `4` permission/confirmation needed · `5` rate-limited · `6` not found · `7` network/timeout.
+Exit codes: `0` ok · `1` tool/generic error · `2` usage · `3` auth (run `every signup`, or `every login` at a terminal) · `4` permission/confirmation needed · `5` rate-limited · `6` not found · `7` network/timeout.
 
 When a tool refuses (exit `1`) and the server attached a structured error, `error.code` is the server's stable, machine-readable code — e.g. `duplicate_deal`, `party_unresolved`, `contact_suppressed`, `deal_archived`, `person_has_references` — and `error.tool_error` carries the server's full error object (e.g. `existing_deal_id`). Branch on the code, never on the message. Servers that send no structured error still produce `error.code: "generic"`. Successful creates return the new record's id in `data.structured_content` (e.g. `structured_content.deal.id`).
 
@@ -100,7 +121,7 @@ In `--json` mode, a server approval response uses exit `4` and includes a struct
 
 ## Headless / CI
 
-Set `EVERY_TOKEN` to a valid access token to skip the browser flow entirely. `login` requires a TTY by design and fails fast (exit `3`) without one.
+Set `EVERY_TOKEN` to a valid access token to skip the browser flow entirely. `login` requires a TTY by design and fails fast (exit `3`) without one; `signup` does not need one.
 
 Target precedence: `--staging` > `EVERY_MCP_URL` > `EVERY_ENV=staging|production` > production.
 

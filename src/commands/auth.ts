@@ -7,12 +7,11 @@ import {
   apiKeysUrlForBaseUrl,
   environmentNameForBaseUrl,
   resolveBaseUrl,
-  signupUrlForBaseUrl,
 } from '../lib/config.js';
 import { CliError } from '../lib/errors.js';
 import { ExitCode } from '../lib/exit-codes.js';
 import { mcpCall } from '../lib/mcp.js';
-import { loginFlow, openBrowser as openBrowserDefault } from '../lib/auth/flow.js';
+import { loginFlow, LoginFlowOptions } from '../lib/auth/flow.js';
 import { activeCredentialIsApiKey, AuthMethod, isApiKeyToken } from '../lib/auth/api-key.js';
 import { decodeJwtClaims } from '../lib/auth/jwt.js';
 import {
@@ -39,7 +38,13 @@ import {
   writeHints,
 } from '../lib/hints.js';
 import { emit } from '../lib/output.js';
+import {
+  refreshInstalledSkills,
+  skillInstallPaths,
+  SkillRefreshOptions,
+} from '../lib/skill-refresh.js';
 import { installBundledSkill } from './skills.js';
+import { signupCommand } from './signup.js';
 
 const WHOAMI_TIMEOUT_MS = 10_000;
 const SKILL_OFFER_PROMPT =
@@ -85,21 +90,15 @@ function hostPaths(cwd: string, homeDir: string): Record<
   SkillOfferTarget,
   { markers: string[]; installed: string[] }
 > {
+  const installed = skillInstallPaths(cwd, homeDir);
   return {
     claude: {
       markers: [path.join(cwd, '.claude'), path.join(homeDir, '.claude')],
-      installed: [
-        path.join(cwd, '.claude', 'skills', 'use-every'),
-        path.join(homeDir, '.claude', 'skills', 'use-every'),
-      ],
+      installed: installed.claude,
     },
     codex: {
       markers: [path.join(cwd, '.agents'), path.join(homeDir, '.codex')],
-      installed: [
-        path.join(cwd, '.agents', 'skills', 'use-every'),
-        path.join(homeDir, '.codex', 'skills', 'use-every'),
-        path.join(homeDir, '.agents', 'skills', 'use-every'),
-      ],
+      installed: installed.codex,
     },
   };
 }
@@ -191,14 +190,6 @@ export interface AuthCommandOptions {
   createAccount?: boolean;
   skipMenu?: boolean;
   org?: string;
-}
-
-export interface CreateAccountFlowOptions extends AuthCommandOptions {
-  input?: TtyReadable;
-  output?: TtyWritable;
-  errorOutput?: Writable;
-  openBrowser?: (url: string) => void | Promise<void>;
-  runLogin?: () => Promise<void>;
 }
 
 export interface LoginResult {
@@ -425,6 +416,25 @@ export interface BrowserLoginDependencies {
   errorOutput?: Writable;
   loginFlow?: typeof loginFlow;
   store?: TokenStore;
+  /**
+   * Caller-owned progress reporting for the browser step. When set (signup), the
+   * caller prints the authorization URL itself and the login preamble is skipped.
+   */
+  flow?: Pick<LoginFlowOptions, 'timeoutMs' | 'onAuthorizationUrl' | 'onBrowserOpened'>;
+  /** Where installed skills are looked for when refreshing them after login. */
+  skillRefresh?: Omit<SkillRefreshOptions, 'errorOutput'>;
+}
+
+/** Refresh stale installed skills, then offer an install where none exists. */
+export async function afterBrowserLogin(
+  opts: AuthCommandOptions,
+  deps: BrowserLoginDependencies = {},
+): Promise<void> {
+  await refreshInstalledSkills({
+    ...deps.skillRefresh,
+    errorOutput: deps.errorOutput ?? process.stderr,
+  });
+  await maybeOfferSkillAfterLogin({ json: opts.json, ...deps, ...deps.skillRefresh });
 }
 
 /** Exchange, verify, then commit. A failed assertion never mutates stored auth or identity. */
@@ -437,14 +447,17 @@ export async function completeBrowserLogin(
   const errorOutput = deps.errorOutput ?? process.stderr;
   const baseUrl = resolveBaseUrl({ staging: opts.staging });
   const { environmentKey } = resolveAuthTarget({ baseUrl });
-  errorOutput.write(opts.org === undefined
-    ? "Pick the workspace in the consent page's selector.\n"
-    : `In the consent page's selector, pick "${opts.org}".\n`);
+  if (!deps.flow) {
+    errorOutput.write(opts.org === undefined
+      ? "Pick the workspace in the consent page's selector.\n"
+      : `In the consent page's selector, pick "${opts.org}".\n`);
+  }
   const tokenSet = await (deps.loginFlow ?? loginFlow)({
     baseUrl,
     onAuthorizationUrl(url) {
       errorOutput.write(`Open this URL to log in:\n${url}\n`);
     },
+    ...deps.flow,
   });
 
   let userinfo: UserInfo | undefined;
@@ -519,7 +532,7 @@ export async function runBrowserLogin(
 ): Promise<void> {
   const data = await completeBrowserLogin(opts, deps);
   emitLogin(data, opts, deps.output, deps.errorOutput);
-  await maybeOfferSkillAfterLogin({ json: opts.json, ...deps });
+  await afterBrowserLogin(opts, deps);
 }
 
 export async function orgSwitchCommand(
@@ -548,32 +561,7 @@ export async function orgSwitchCommand(
   await maybeOfferSkillAfterLogin({ json: opts.json, ...deps });
 }
 
-export async function createAccountFlow(
-  opts: CreateAccountFlowOptions = {},
-): Promise<void> {
-  validateBrowserLogin(opts);
-  const input = opts.input ?? process.stdin;
-  const output = opts.output ?? process.stdout;
-  const errorOutput = opts.errorOutput ?? process.stderr;
-  const signupUrl = signupUrlForBaseUrl(resolveBaseUrl({ staging: opts.staging }));
-
-  errorOutput.write(
-    `Opening the Every sign-up page:\n  ${signupUrl}\nCreate your account and set up your workspace in the browser.\n`,
-  );
-  await (opts.openBrowser ?? openBrowserDefault)(signupUrl);
-
-  const rl = createInterface({ input, output: errorOutput, terminal: false });
-  try {
-    await rl.question("When you're done, press Enter to connect your terminal... ");
-  } finally {
-    rl.close();
-  }
-
-  const runLogin = opts.runLogin ?? (() => runBrowserLogin(opts, { input, output, errorOutput }));
-  await runLogin();
-}
-
-async function promptForLoggedOutAction(): Promise<'login' | 'createAccount'> {
+async function promptForLoggedOutAction(): Promise<'login' | 'signup'> {
   process.stderr.write(
     [
       "You're not signed in to Every.",
@@ -589,7 +577,7 @@ async function promptForLoggedOutAction(): Promise<'login' | 'createAccount'> {
   });
   try {
     const answer = (await rl.question('Choose [1]: ')).trim();
-    if (answer === '2') return 'createAccount';
+    if (answer === '2') return 'signup';
     if (answer !== '' && answer !== '1') {
       process.stderr.write('Unrecognized choice; continuing with log in.\n');
     }
@@ -619,25 +607,21 @@ export async function loginCommand(opts: AuthCommandOptions = {}): Promise<void>
     return;
   }
 
+  if (opts.createAccount) {
+    // Deprecated alias. Signup needs no TTY, so it runs before the login TTY check.
+    if (!opts.json) {
+      process.stderr.write('Note: `every login --create-account` is deprecated; use `every signup`.\n');
+    }
+    await signupCommand({ json: opts.json, staging: opts.staging });
+    return;
+  }
+
   if (!process.stdout.isTTY) {
     throw new CliError(
       'login requires a browser; set EVERY_TOKEN for headless use',
       ExitCode.AUTH,
       'auth',
     );
-  }
-
-  if (opts.createAccount) {
-    // The pause-for-signup prompt reads stdin; a piped/closed stdin would hang there.
-    if (process.stdin.isTTY !== true) {
-      throw new CliError(
-        'create-account requires an interactive terminal; set EVERY_TOKEN for headless use',
-        ExitCode.AUTH,
-        'auth',
-      );
-    }
-    await createAccountFlow(opts);
-    return;
   }
 
   const baseUrl = resolveBaseUrl({ staging: opts.staging });
@@ -650,8 +634,8 @@ export async function loginCommand(opts: AuthCommandOptions = {}): Promise<void>
     !(await getAuthStatus({ baseUrl })).logged_in
   ) {
     const action = await promptForLoggedOutAction();
-    if (action === 'createAccount') {
-      await createAccountFlow(opts);
+    if (action === 'signup') {
+      await signupCommand({ json: opts.json, staging: opts.staging });
       return;
     }
   }

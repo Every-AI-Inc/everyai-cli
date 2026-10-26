@@ -5,7 +5,7 @@ import path from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  completeBrowserLogin, createAccountFlow, matchesOrg, orgCommand,
+  completeBrowserLogin, matchesOrg, orgCommand,
   orgSwitchCommand, runBrowserLogin, whoamiCommand,
 } from '../src/commands/auth';
 import { loginFlow } from '../src/lib/auth/flow';
@@ -166,8 +166,9 @@ describe('workspace browser completion', () => {
     const state = JSON.parse(await readFile(stateFile, 'utf8'));
     const authorize = new URL(state.authorizationRequests[0]);
     expect([...authorize.searchParams.keys()].sort()).toEqual([
-      'client_id', 'code_challenge', 'code_challenge_method', 'redirect_uri', 'response_type', 'scope', 'state',
+      'client_id', 'code_challenge', 'code_challenge_method', 'redirect_uri', 'resource', 'response_type', 'scope', 'state',
     ]);
+    expect(authorize.searchParams.get('resource')).toBe(PROD_BASE_URL);
     expect(authorize.searchParams.has('organization_id')).toBe(false);
     emitted = '';
     await orgCommand({ json: true });
@@ -193,6 +194,19 @@ describe('workspace browser completion', () => {
     expect(emitted).toBe('');
   });
 
+  it('refreshes a stale installed skill after a browser login', async () => {
+    const skillDir = path.join(dir, 'home', '.claude', 'skills', 'use-every');
+    await fs.mkdir(skillDir, { recursive: true });
+    await writeFile(path.join(skillDir, 'SKILL.md'), '# installed before skills were stamped\n');
+
+    await runBrowserLogin({ json: true }, {
+      ...deps(), skillRefresh: { cwd: path.join(dir, 'project'), homeDir: path.join(dir, 'home') },
+    });
+
+    expect(await readFile(path.join(skillDir, 'SKILL.md'), 'utf8')).toContain('every-skill-version');
+    expect(stderr.text()).toContain(`Updated the use-every skill at ${skillDir}`);
+  });
+
   it('reports additive login JSON fields and preserves existing keys', async () => {
     await runBrowserLogin({ json: true }, deps());
     expect(JSON.parse(emitted)).toEqual({ ok: true, env: 'production', schema_version: 1, data: {
@@ -201,17 +215,6 @@ describe('workspace browser completion', () => {
       user_id: newInfo.user_id, org_id: newInfo.org_id, org_slug: newInfo.org_slug, org_name: newInfo.org_name,
     } });
     expect(stderr.text()).toContain("Pick the workspace in the consent page's selector.");
-  });
-
-  it('uses shared completion after signup and reports the workspace in human output', async () => {
-    const input = new Readable({ read() {} });
-    await createAccountFlow({
-      input, output: stdout.output, errorOutput: stderr.output,
-      openBrowser: async () => { setImmediate(() => input.push('\n')); },
-      runLogin: () => runBrowserLogin({}, deps()),
-    });
-    expect(stdout.text()).toContain('Logged in as new@example.com · workspace Café Company (org_New)\nSwitch workspace: every org switch');
-    expect(await readCachedUserInfo(PROD_BASE_URL)).toEqual(newInfo);
   });
 });
 

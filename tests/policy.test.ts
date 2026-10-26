@@ -24,10 +24,12 @@ function isOverridden(name: string): boolean {
     name === 'record_payment' ||
     name === 'run_recurring_invoice_now' ||
     name === 'approve_pending_deal' ||
+    name === 'approve_prospect' ||
     name === 'create_delivery_deal' ||
-    name === 'set_deal_title' ||
+    name === 'set_deal_name' ||
     name === 'link_deal_item' ||
     name === 'unlink_deal_item' ||
+    name === 'set_recipient_defaults' ||
     /^delete_|^void_|^send_|^cancel_/.test(name)
   );
 }
@@ -40,7 +42,7 @@ function tool(name: string): FixtureTool {
 
 describe('policy classification', () => {
   it('covers the full snapshotted live tool registry', () => {
-    expect(tools).toHaveLength(98);
+    expect(tools).toHaveLength(99);
   });
 
   it('classifies destructive name and financial-record overrides as destructive', () => {
@@ -121,7 +123,7 @@ describe('policy classification', () => {
       'view_prospect',
       'network_summary',
       'get_daily_brief',
-      'get_heartbeat_summary',
+      'get_scheduled_task_result',
       'get_financial_report',
       'list_recurring_invoices',
       'list_meta_field_definitions',
@@ -149,11 +151,31 @@ describe('policy classification', () => {
     }
   });
 
-  it('pins approve_pending_deal to write via a local override, independent of server annotations', () => {
-    expect(classify(tool('approve_pending_deal'))).toMatchObject({ level: 'write', source: 'override' });
-    // Even with no annotation metadata at all — the override doesn't depend on the server
-    // continuing to send destructiveHint:false.
-    expect(classify({ name: 'approve_pending_deal' })).toMatchObject({ level: 'write', source: 'override' });
+  it.each(['approve_pending_deal', 'approve_prospect'])(
+    'pins %s to write via a local override, independent of server annotations',
+    (name) => {
+      expect(classify(tool(name))).toMatchObject({ level: 'write', source: 'override' });
+      // Even with no annotation metadata at all — the override doesn't depend on the server
+      // continuing to send destructiveHint:false.
+      expect(classify({ name })).toMatchObject({ level: 'write', source: 'override' });
+      // Nor on a host view that flags it destructive (the ChatGPT listing does for approve_prospect).
+      expect(classify({ name, destructive: true })).toMatchObject({ level: 'write', source: 'override' });
+    },
+  );
+
+  it('mirrors the renamed deal and invoice tools and drops the retired names', () => {
+    // 2026-10 naming alignment: set_deal_target_value -> set_deal_value_estimate,
+    // set_deal_title -> set_deal_name, delete_invoice -> void_invoice.
+    const names = new Set(tools.map((candidate) => candidate.name));
+    for (const retired of ['set_deal_target_value', 'set_deal_title', 'delete_invoice']) {
+      expect(names.has(retired), `${retired} is retired`).toBe(false);
+    }
+    expect(classify(tool('set_deal_value_estimate'))).toMatchObject({ level: 'write', source: 'annotation' });
+    expect(classify(tool('set_deal_name'))).toMatchObject({ level: 'write', source: 'override' });
+    // void_invoice voids (never deletes); the void_ name rule catches it, with no extra entry.
+    expect(tool('void_invoice')).toMatchObject({ readOnly: false, destructive: true });
+    expect(classify(tool('void_invoice'))).toMatchObject({ level: 'destructive', source: 'override' });
+    expect(classify({ name: 'void_invoice' }).reason).toContain('delete_/void_/cancel_');
   });
 
   it('pins the client-deal write tools via local overrides, with or without annotations', () => {
@@ -163,7 +185,7 @@ describe('policy classification', () => {
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     };
 
-    for (const name of ['create_delivery_deal', 'set_deal_title', 'link_deal_item']) {
+    for (const name of ['create_delivery_deal', 'set_deal_name', 'link_deal_item']) {
       expect(classify({ name, ...serverAnnotations })).toMatchObject({
         level: 'write',
         source: 'override',
@@ -209,6 +231,21 @@ describe('policy classification', () => {
     expect(classify({ name: 'get_some_future_report' }).level).toBe('write');
   });
 
+  it('pins the signup tools: status is a read, complete is a write that never needs --allow-destructive', () => {
+    const signupTools = JSON.parse(
+      readFileSync(path.join(path.dirname(fixturePath), 'signup-tools.json'), 'utf8'),
+    ) as Array<{ name: string; annotations: Record<string, boolean> }>;
+    const byName = Object.fromEntries(signupTools.map((entry) => [entry.name, entry]));
+
+    expect(classify(byName.get_signup_status)).toMatchObject({ level: 'read', source: 'override' });
+    expect(classify(byName.complete_signup)).toMatchObject({ level: 'write', source: 'override' });
+    // Annotation drift in either direction cannot move them.
+    expect(classify({ name: 'complete_signup', destructive: true }).level).toBe('write');
+    expect(classify({ name: 'complete_signup', readOnly: true }).level).toBe('write');
+    expect(classify({ name: 'get_signup_status', readOnly: false }).level).toBe('read');
+    expect(requirementFor('write', { interactive: false, yes: true })).toEqual({ allowed: true });
+  });
+
   it('explains high-risk tools correctly without annotation metadata', () => {
     expect(classify({ name: 'send_email' })).toMatchObject({ level: 'destructive', source: 'override' });
     expect(classify({ name: 'draft_email' })).toMatchObject({ level: 'write', source: 'annotation' });
@@ -221,6 +258,22 @@ describe('policy classification', () => {
 });
 
 describe('policy requirements', () => {
+  it('pins recipient changes to destructive policy regardless of annotations', () => {
+    for (const metadata of [{}, { readOnly: true, destructive: false },
+      { annotations: { readOnlyHint: true, destructiveHint: false } }]) {
+      expect(classify({ name: 'set_recipient_defaults', ...metadata })).toMatchObject({
+        level: 'destructive', source: 'override',
+      });
+    }
+    expect(requirementFor('destructive', { interactive: false, yes: true })).toMatchObject({ allowed: false });
+    expect(requirementFor('destructive', { interactive: true })).toMatchObject({ prompt: 'typed' });
+    expect(requirementFor('destructive', { interactive: false, yes: true, allowDestructive: true })).toEqual({ allowed: true });
+  });
+  it.each(['send_invoice', 'send_proposal'])('keeps %s destructive even if annotations change', (name) => {
+    expect(classify({ name, readOnly: true, destructive: false })).toMatchObject({
+      level: 'destructive', source: 'override',
+    });
+  });
   it('requires --yes for non-interactive writes', () => {
     expect(requirementFor('write', { interactive: false })).toMatchObject({
       allowed: false,

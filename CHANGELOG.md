@@ -1,6 +1,6 @@
 # @everyai/cli
 
-## 0.8.0
+## Unreleased
 
 ### Minor Changes
 
@@ -12,6 +12,35 @@
   - The bundled `use-every` skill documents stage discovery and the key-or-label rule.
 
   Against a server that predates customizable stages, `deal move` and `deal list --stage` with one of the four defaults behave as before; any other value is rejected by the server's schema instead of locally, and `every deal stages` falls back to the four default stages from the older settings map.
+
+## 0.9.0
+
+### Minor Changes
+
+- 7aab168: Add proposal sends and per-kind recipient commands, and require an exact recipient preview before invoice or proposal send confirmation.
+- 157d81a: Invoice and proposal sends show the exact recipients first. `every invoice send` and the new `every proposal send` preview the send, print the exact To and CC (name and email), ask for confirmation (`--yes` without a TTY) and send with the binding from the preview. `--expect-digest` stops a send when the fresh preview differs from the approved one. New `every recipients get|set <party> --kind invoice|proposal` reads and sets a person's or company's default recipients. `every tool call send_invoice|send_proposal` refuses a missing or invalid recipients binding.
+
+## 0.8.1
+
+### Patch Changes
+
+- b449f81: The CLI now uses Every's current names, the same ones the in-app agent uses. `every person list [--search <q>] [--limit <n>]` lists People through `list_people`. `every contact list` still works as a hidden, deprecated alias and prints a one-line note to stderr. `every invoice create` takes `--company-id <id>` or `--person-id <id>` to name the recipient without a name search. `--client-id` (a Company unless `--person` names a Person, as before) and `--client` (an alias for `--company`) still work as hidden, deprecated aliases with a one-line stderr note. Conflicting recipient flags are a usage error, and an ambiguous name now says which id flag to use. Help and `every docs` list only the current names; with `--json`, stdout is still one envelope.
+
+  The local safety policy follows the admin MCP renames. `set_deal_name` (formerly `set_deal_title`) stays pinned to the write tier, and `approve_prospect` is pinned to write next to `approve_pending_deal`, which the server keeps. `void_invoice` (formerly `delete_invoice`; it voids and never deletes) stays destructive through the `void_` name rule. The bundled `use-every` skill is now revision 3, so installed copies refresh on the next `every login` or `every signup`. It teaches `approve_prospect` (the owner/bookkeeper review action) and `approve_pending_deal` (the API-key path), `merge_prospect` with `into_deal_id`, `reject_prospect`, `view_prospect` with `prospect_id`, `network_summary` with `target_id`, `list_prospects` with `status=rejected`, `set_deal_name`, `set_deal_value_estimate`, `void_invoice`, the `recurring` section of `get_financial_report`, and the new recipient flags. The test fixtures that mirror the server's tool surface carry the new tool names.
+
+- 1786f36: `get_heartbeat_summary` is retired. It read the stored result of the "pipeline_heartbeat" routine, which no longer runs, so it returned stale or empty data. Read a scheduled task's latest completed result with `get_scheduled_task_result` instead, passing a `task_id` from `list_scheduled_tasks`. It is read-only, it does not run the task, and the CLI treats it as a free read, like `get_daily_brief`. The bundled `use-every` skill and the test fixtures that mirror the server's tool surface now name the new tool.
+
+## 0.8.0
+
+### Minor Changes
+
+- 0035f83: Add `every signup`, `every signup status` and `every signup complete` so a coding agent can sign a user up for Every on their behalf. `every signup` runs one browser OAuth authorization and works without a TTY: it prints the authorization URL first (with `--json`, as the first NDJSON line `{"event":"authorization_required","url":...}`), tries to open the browser, waits on the loopback for up to `--timeout` seconds (default 300), then reports the server's `get_signup_status` envelope. It never opens the web sign-up page and never waits for Enter. `every signup complete --org-name <name> [--description <text>] [--link <url> ...] --yes` commits the profile the user confirmed through `complete_signup`, with the usual one-retry text confirmation and no `--allow-destructive`. All three bypass the tools cache; a server without the tools exits `6` with `error.code: "signup_unsupported"`. Any tool refused with `signup_incomplete` now tells the caller to run `every signup status` / `every signup complete`.
+
+  `every login --create-account` is now a deprecated alias for `every signup` (the note appears in human output only), as is the "Create an account" menu choice. Plain `every login` and `EVERY_TOKEN` are unchanged; `EVERY_TOKEN` is never a signup path.
+
+  OAuth now sends the RFC 8707 `resource` parameter (the canonical MCP resource URL from protected-resource metadata, falling back to the MCP base URL) on the authorization request, the code exchange and the refresh.
+
+  The bundled `use-every` skill carries a revision stamp (`metadata.every-skill-version`), and `every signup`/`every login` refresh installed copies whose stamp is older or missing, in the locations the installer already knows, without installing anywhere new. The skill now tells agents to run the signup flow themselves, ask one combined profile question, and never ask for passwords, codes or tokens.
 
 ## 0.7.2
 

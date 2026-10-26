@@ -22,11 +22,17 @@ interface CallbackResult {
   iss?: string;
 }
 
+/** Resolves false when no browser could be launched; void counts as launched. */
+export type BrowserOpener = (url: string) => void | boolean | Promise<void | boolean>;
+
 export interface LoginFlowOptions {
   baseUrl: string;
   timeoutMs?: number;
-  openBrowser?: (url: string) => void | Promise<void>;
+  openBrowser?: BrowserOpener;
+  /** Called with the one authorization URL, before any browser is opened. */
   onAuthorizationUrl?: (url: string) => void;
+  /** Called after the browser launch attempt, before waiting for the callback. */
+  onBrowserOpened?: (opened: boolean) => void;
   now?: () => number;
   createCallbackServer?: typeof createLoopbackCallbackServer;
 }
@@ -37,6 +43,8 @@ export interface TokenExchangeOptions {
   redirectUri: string;
   code: string;
   codeVerifier: string;
+  /** RFC 8707 resource indicator; sent when present. */
+  resource?: string;
   now?: () => number;
 }
 
@@ -134,6 +142,7 @@ function buildAuthorizationUrl(params: {
   redirectUri: string;
   state: string;
   codeChallenge: string;
+  resource: string;
 }): string {
   const url = new URL(params.metadata.authorization_endpoint);
   url.searchParams.set('response_type', 'code');
@@ -143,20 +152,28 @@ function buildAuthorizationUrl(params: {
   url.searchParams.set('state', params.state);
   url.searchParams.set('code_challenge', params.codeChallenge);
   url.searchParams.set('code_challenge_method', 'S256');
+  url.searchParams.set('resource', params.resource);
   return url.toString();
 }
 
-export async function openBrowser(url: string): Promise<void> {
+/** Best-effort launch of the system browser; resolves false when it could not start. */
+export async function openBrowser(url: string): Promise<boolean> {
   const command =
     process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open';
   const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
 
-  await new Promise<void>((resolve) => {
-    const child = spawn(command, args, { detached: true, stdio: 'ignore' });
-    child.once('error', () => resolve());
+  return new Promise<boolean>((resolve) => {
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(command, args, { detached: true, stdio: 'ignore' });
+    } catch {
+      resolve(false);
+      return;
+    }
+    child.once('error', () => resolve(false));
     child.once('spawn', () => {
       child.unref();
-      resolve();
+      resolve(true);
     });
   });
 }
@@ -171,6 +188,7 @@ export async function exchangeAuthorizationCode(
     client_id: opts.clientId,
     code_verifier: opts.codeVerifier,
   });
+  if (opts.resource) body.set('resource', opts.resource);
 
   let response: unknown;
   try {
@@ -203,6 +221,12 @@ export async function exchangeAuthorizationCode(
 
 export async function loginFlow(opts: LoginFlowOptions): Promise<StoredTokenSet> {
   const timeoutMs = opts.timeoutMs ?? LOGIN_TIMEOUT_MS;
+  const timeoutSeconds = Math.round(timeoutMs / 1000);
+  const timedOut = () =>
+    new CliError(`Login timed out after ${timeoutSeconds}s`, ExitCode.AUTH, 'auth', {
+      reason: 'timeout',
+      timeout_seconds: timeoutSeconds,
+    });
   const startedAt = Date.now();
   const state = createState();
   const pkce = createPkcePair();
@@ -210,7 +234,7 @@ export async function loginFlow(opts: LoginFlowOptions): Promise<StoredTokenSet>
 
   const timeout = new Promise<never>((_, reject) => {
     setTimeout(() => {
-      reject(new CliError('Login timed out after 300s', ExitCode.AUTH, 'auth'));
+      reject(timedOut());
     }, timeoutMs).unref();
   });
 
@@ -223,10 +247,17 @@ export async function loginFlow(opts: LoginFlowOptions): Promise<StoredTokenSet>
       redirectUri: loopback.redirectUri,
       state,
       codeChallenge: pkce.challenge,
+      resource: discovery.resource,
     });
 
     opts.onAuthorizationUrl?.(authorizationUrl);
-    await (opts.openBrowser ?? openBrowser)(authorizationUrl);
+    let opened: boolean;
+    try {
+      opened = (await (opts.openBrowser ?? openBrowser)(authorizationUrl)) !== false;
+    } catch {
+      opened = false;
+    }
+    opts.onBrowserOpened?.(opened);
 
     const callback = await Promise.race([loopback.waitForCallback, timeout]);
 
@@ -243,7 +274,7 @@ export async function loginFlow(opts: LoginFlowOptions): Promise<StoredTokenSet>
 
     const elapsed = Date.now() - startedAt;
     if (elapsed > timeoutMs) {
-      throw new CliError('Login timed out after 300s', ExitCode.AUTH, 'auth');
+      throw timedOut();
     }
 
     return await Promise.race([
@@ -253,6 +284,7 @@ export async function loginFlow(opts: LoginFlowOptions): Promise<StoredTokenSet>
         redirectUri: loopback.redirectUri,
         code: callback.code,
         codeVerifier: pkce.verifier,
+        resource: discovery.resource,
         now: opts.now,
       }),
       timeout,

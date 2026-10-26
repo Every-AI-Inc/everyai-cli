@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { CliError } from '../lib/errors.js';
 import { ExitCode } from '../lib/exit-codes.js';
 import { emit } from '../lib/output.js';
+import { documentKind, DocumentKind, preservedExclusions, record, recipientBinding, RecipientBinding, recipientLines } from '../lib/recipients.js';
 import {
   executeToolCall,
   invokeToolCall,
@@ -22,14 +23,27 @@ interface DealListOptions extends ListOptions {
   stage?: string;
 }
 
-interface ContactListOptions extends ListOptions {}
+interface PersonListOptions extends ListOptions {}
 
-interface InvoiceSendOptions extends ToolExecutionOptions {}
+interface DocumentSendOptions extends ToolExecutionOptions {
+  expectDigest?: string;
+}
+
+interface RecipientsOptions extends InvoiceCreateOptions {
+  kind?: string;
+  to?: string;
+  cc?: string[];
+  clearCc?: boolean;
+}
 
 interface InvoiceCreateOptions extends ToolExecutionOptions {
+  /** Deprecated alias for `company`. */
   client?: string;
   company?: string;
   person?: string;
+  companyId?: string;
+  personId?: string;
+  /** Deprecated: an id of either kind; `company` unless `--person` names a Person. */
   clientId?: string;
   amount?: string;
   description?: string;
@@ -64,9 +78,10 @@ export interface ClientCandidate {
 
 export interface ResolvedClient {
   client_id: string;
-  // Every FinancialParty needs an explicit kind; a bare --client-id (no --company
-  // or --person alongside it) can't infer one from a name search, so it defaults
-  // to 'company' — the historical meaning of "client" in this CLI's own flags.
+  // Every FinancialParty needs an explicit kind. --company-id and --person-id
+  // carry it; the deprecated --client-id can't, so it takes the kind of a
+  // --company/--person name given alongside it and otherwise defaults to
+  // 'company', the historical meaning of "client" in this CLI's own flags.
   kind: 'company' | 'person';
   name: string | null;
 }
@@ -257,28 +272,42 @@ export function parseClientCandidates(result: {
   ]);
 }
 
-function partyCandidatesMessage(label: string, query: string, candidates: ClientCandidate[]): string {
+type PartyKind = 'company' | 'person';
+
+const PARTY_ID_FLAG: Record<PartyKind, string> = {
+  company: '--company-id',
+  person: '--person-id',
+};
+
+function partyCandidatesMessage(kind: PartyKind, query: string, candidates: ClientCandidate[]): string {
   return [
-    `Multiple ${label}s matching "${query}".`,
+    `Multiple ${kind === 'person' ? 'People' : 'Companies'} matching "${query}".`,
     ...candidates.map((candidate) => `${candidate.client_id}  ${candidate.name}`),
-    'Re-run with --client-id <id>',
+    `Re-run with ${PARTY_ID_FLAG[kind]} <id>`,
   ].join('\n');
 }
 
 interface PartySelector {
-  kind: 'company' | 'person';
+  kind: PartyKind;
   name: string;
 }
 
-// --client is the deprecated alias for --company (the historical "client" concept is
-// now the Company record); --person resolves via the People half of the same schema.
+interface PartyIdSelector {
+  // undefined only for the deprecated --client-id, which does not say its kind.
+  kind: PartyKind | undefined;
+  id: string;
+  flag: string;
+}
+
+// --client is the deprecated alias for --company (the CLI's older word for the
+// invoice recipient); --person resolves via the People half of the same schema.
 function selectParty(opts: InvoiceCreateOptions): PartySelector | undefined {
   const companyName = nonEmpty(opts.company) ?? nonEmpty(opts.client);
   const personName = nonEmpty(opts.person);
 
   if (companyName && personName) {
     throw new CliError(
-      'Use only one of --company/--client or --person to resolve the invoice recipient',
+      'Use only one of --company or --person to resolve the invoice recipient',
       ExitCode.USAGE,
       'usage',
     );
@@ -289,16 +318,60 @@ function selectParty(opts: InvoiceCreateOptions): PartySelector | undefined {
   return undefined;
 }
 
-async function resolveClient(opts: InvoiceCreateOptions): Promise<ResolvedClient> {
+function selectPartyId(opts: InvoiceCreateOptions): PartyIdSelector | undefined {
+  const given: PartyIdSelector[] = [];
+  const companyId = nonEmpty(opts.companyId);
+  const personId = nonEmpty(opts.personId);
   const clientId = nonEmpty(opts.clientId);
+  if (companyId) given.push({ kind: 'company', id: companyId, flag: '--company-id' });
+  if (personId) given.push({ kind: 'person', id: personId, flag: '--person-id' });
+  if (clientId) given.push({ kind: undefined, id: clientId, flag: '--client-id' });
+
+  if (given.length > 1) {
+    throw new CliError(
+      `Use only one of --company-id or --person-id (got ${given.map((entry) => entry.flag).join(' and ')})`,
+      ExitCode.USAGE,
+      'usage',
+    );
+  }
+  return given[0];
+}
+
+async function resolveClient(opts: InvoiceCreateOptions, partyName?: string): Promise<ResolvedClient> {
+  const partyId = selectPartyId(opts);
   const selector = selectParty(opts);
 
-  if (clientId) {
-    return { client_id: clientId, kind: selector?.kind ?? 'company', name: selector?.name ?? null };
+  if (partyId) {
+    if (partyId.kind && selector && selector.kind !== partyId.kind) {
+      throw new CliError(
+        `${partyId.flag} names a ${partyId.kind}; use ${PARTY_ID_FLAG[selector.kind]} for a ${selector.kind}`,
+        ExitCode.USAGE,
+        'usage',
+      );
+    }
+    return {
+      client_id: partyId.id,
+      kind: partyId.kind ?? selector?.kind ?? 'company',
+      name: selector?.name ?? null,
+    };
   }
   if (!selector) {
+    if (partyName) {
+      const matches: ResolvedClient[] = [];
+      for (const kind of ['company', 'person'] as const) {
+        const tool = kind === 'company' ? 'list_companies' : 'list_people';
+        const result = await invokeToolCall(tool, opts, async () => ({ query: partyName }));
+        matches.push(...parseClientCandidates(result).map((candidate) => ({ ...candidate, kind })));
+      }
+      if (matches.length === 1) return matches[0];
+      throw new CliError(matches.length === 0 ? `No Person or Company matching "${partyName}".` : [
+        `Multiple People or Companies match "${partyName}".`,
+        ...matches.map((candidate) => `${candidate.kind} ${candidate.client_id}  ${candidate.name}`),
+        'Re-run with --company-id <id> or --person-id <id>.',
+      ].join('\n'), ExitCode.NOT_FOUND, 'not_found', { candidates: matches });
+    }
     throw new CliError(
-      '--client, --company, --person, or --client-id is required',
+      'One of --company, --person, --company-id, or --person-id is required',
       ExitCode.USAGE,
       'usage',
     );
@@ -324,7 +397,7 @@ async function resolveClient(opts: InvoiceCreateOptions): Promise<ResolvedClient
   }
 
   throw new CliError(
-    partyCandidatesMessage(label, selector.name, candidates),
+    partyCandidatesMessage(selector.kind, selector.name, candidates),
     ExitCode.NOT_FOUND,
     'not_found',
     { candidates },
@@ -342,9 +415,115 @@ export async function invoiceListCommand(opts: InvoiceListOptions = {}): Promise
 
 export async function invoiceSendCommand(
   invoiceId: string,
-  opts: InvoiceSendOptions = {},
+  opts: DocumentSendOptions = {},
 ): Promise<void> {
-  await executeToolCall('send_invoice', opts, async () => ({ invoice_id: invoiceId }));
+  await documentSendCommand('invoice', invoiceId, opts);
+}
+
+export async function proposalSendCommand(proposalId: string, opts: DocumentSendOptions = {}): Promise<void> {
+  await documentSendCommand('proposal', proposalId, opts);
+}
+
+async function documentSendCommand(kind: DocumentKind, id: string, opts: DocumentSendOptions): Promise<void> {
+  if (opts.expectDigest !== undefined && !/^[a-f0-9]{64}$/.test(opts.expectDigest)) {
+    throw new CliError('--expect-digest must be the 64-character digest from the approved preview.', ExitCode.USAGE, 'usage');
+  }
+  let preview: Record<string, unknown> = {};
+  let binding: RecipientBinding;
+  await executeToolCall(`send_${kind}`, opts, async () => ({ [`${kind}_id`]: id, recipients: binding }),
+    (data) => ({ ...data, preview }), {
+      recipientConfirmation: true,
+      beforeConfirmation: async () => {
+        const result = await invokeToolCall('preview_document_send', opts,
+          async () => ({ document_kind: kind, document_id: id }));
+        preview = record(result.structured_content);
+        if (preview.document_id !== id || preview.document_kind !== kind) {
+          throw new CliError('The server returned a preview for a different document or kind. No document was sent.',
+            ExitCode.GENERIC, 'send_preview_mismatch');
+        }
+        binding = recipientBinding(preview.recipients);
+        process.stderr.write(`${recipientLines(preview)}\n`);
+        if (opts.expectDigest !== undefined && binding.digest !== opts.expectDigest) {
+          throw new CliError('The recipient digest does not match --expect-digest. Review these recipients and get approval before you send again.',
+            ExitCode.GENERIC, 'send_preparation_stale', { expected_digest: opts.expectDigest, actual_digest: binding.digest });
+        }
+      },
+    });
+}
+
+function recipientPartyArgs(party: ResolvedClient, kind: DocumentKind): Record<string, unknown> {
+  return { party_kind: party.kind, party_id: party.client_id, document_kind: kind, kind };
+}
+
+export async function recipientsGetCommand(party: string, opts: RecipientsOptions = {}): Promise<void> {
+  const kind = documentKind(opts.kind);
+  const resolved = await resolveClient(opts, party);
+  await executeToolCall('get_recipient_defaults', opts, async () => recipientPartyArgs(resolved, kind),
+    undefined, undefined, (data) => recipientLines(record(data.structured_content)));
+}
+
+function resolveRecipientMethod(value: string, methods: Record<string, unknown>[]): string {
+  const matches = methods.filter((method) => method.id === value ||
+    [method.delivery_address, method.normalized_value, method.value].some((address) =>
+      typeof address === 'string' && address.toLowerCase() === value.toLowerCase()));
+  if (matches.length !== 1 || typeof matches[0].id !== 'string') {
+    throw new CliError(matches.length > 1
+      ? `Multiple eligible methods match "${value}". Use a method ID.`
+      : `No eligible email method matches "${value}". Run every recipients get first.`,
+    ExitCode.USAGE, 'usage', { candidates: matches });
+  }
+  return matches[0].id;
+}
+
+export async function recipientsSetCommand(party: string, opts: RecipientsOptions = {}): Promise<void> {
+  const kind = documentKind(opts.kind);
+  const to = nonEmpty(opts.to);
+  if (!to) throw new CliError('--to is required', ExitCode.USAGE, 'usage');
+  if (opts.clearCc && opts.cc?.length) {
+    throw new CliError('Use --cc or --clear-cc, not both.', ExitCode.USAGE, 'usage');
+  }
+  let args: Record<string, unknown> = {};
+  await executeToolCall('set_recipient_defaults', opts, async () => args, undefined, {
+    beforeConfirmation: async () => {
+      const resolved = await resolveClient(opts, party);
+      const partyArgs = recipientPartyArgs(resolved, kind);
+      const defaults = record((await invokeToolCall('get_recipient_defaults', opts,
+        async () => partyArgs)).structured_content);
+      if (!Number.isInteger(defaults.version) || Number(defaults.version) < 0 || !Array.isArray(defaults.eligible_methods)) {
+        throw new CliError('The server returned invalid recipient defaults. No defaults were changed.');
+      }
+      const noneIds = preservedExclusions(defaults);
+      const methods = defaults.eligible_methods.map(record);
+      const toId = resolveRecipientMethod(to, methods);
+      const currentCc = record(defaults.effective).cc_method_ids ?? defaults.cc_method_ids;
+      if (opts.cc === undefined && !opts.clearCc && !Array.isArray(currentCc)) {
+        throw new CliError('The current CC recipients are unavailable. Use --cc or --clear-cc explicitly.');
+      }
+      const ccIds = opts.clearCc ? [] : opts.cc
+        ? opts.cc.map((value) => resolveRecipientMethod(value, methods))
+        : (currentCc as string[]).filter((id) => id !== toId);
+      if (ccIds.includes(toId) || new Set(ccIds).size !== ccIds.length) {
+        throw new CliError('Select each recipient once. To and CC must use different methods.', ExitCode.USAGE, 'usage');
+      }
+      if ([toId, ...ccIds].some((id) => noneIds.includes(id))) {
+        throw new CliError('A selected method is excluded. This command preserves exclusions. Change the exclusion explicitly before you select it.',
+          ExitCode.USAGE, 'usage');
+      }
+      const selected = [toId, ...ccIds].map((id) => {
+        resolveRecipientMethod(id, methods);
+        return methods.find((method) => method.id === id)!;
+      });
+      args = { ...partyArgs, command: {
+        operation_id: randomUUID(), expected_version: defaults.version,
+        to_method_id: toId, cc_method_ids: ccIds,
+        none_method_ids: noneIds,
+      } };
+      process.stderr.write(`${recipientLines({ eligible_methods: methods, recipient_preview: {
+        to: selected[0].delivery_address,
+        cc: selected.slice(1).map((method) => method.delivery_address),
+      } })}\n`);
+    },
+  }, (data) => recipientLines(record(data.structured_content)));
 }
 
 export async function invoiceCreateCommand(opts: InvoiceCreateOptions = {}): Promise<void> {
@@ -526,11 +705,10 @@ export async function dealStagesCommand(opts: ToolExecutionOptions = {}): Promis
   else process.stdout.write(`${stagesHuman(stages)}\n`);
 }
 
-export async function contactListCommand(opts: ContactListOptions = {}): Promise<void> {
+export async function personListCommand(opts: PersonListOptions = {}): Promise<void> {
   const args: Record<string, unknown> = {};
   if (opts.search !== undefined) args[NETWORK_SEARCH_QUERY_PARAM] = opts.search;
   addLimit(args, opts.limit);
 
-  // list_contacts is retired; list_people is the live People/Companies replacement.
   await executeToolCall('list_people', opts, async () => args);
 }

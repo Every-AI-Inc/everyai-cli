@@ -13,6 +13,8 @@ export class HttpStatusError extends CliError {
 }
 
 export interface ProtectedResourceMetadata {
+  /** RFC 9728 resource identifier; the value RFC 8707 `resource` should carry. */
+  resource?: string;
   authorization_servers: string[];
 }
 
@@ -30,6 +32,12 @@ export interface AuthorizationServerMetadata {
 
 export interface OAuthDiscovery {
   mcpBaseUrl: string;
+  /**
+   * Canonical MCP resource URI sent as RFC 8707 `resource` on the authorization
+   * request, the code exchange and the refresh, so the issuer can bind tokens
+   * to this server.
+   */
+  resource: string;
   protectedResource: ProtectedResourceMetadata;
   authServer: AuthorizationServerMetadata;
 }
@@ -110,6 +118,24 @@ function validateAuthServer(
   return value;
 }
 
+/**
+ * Prefer the resource the server names in its protected-resource metadata. Fall
+ * back to the MCP base URL when it names none, names something unparseable, or
+ * names a different origin: a metadata document may only describe the server
+ * that served it (RFC 9728 section 3.3).
+ */
+export function canonicalResource(mcpBaseUrl: string, metadata: ProtectedResourceMetadata): string {
+  const fallback = trimTrailingSlash(mcpBaseUrl);
+  if (typeof metadata.resource !== 'string' || metadata.resource.trim() === '') return fallback;
+  try {
+    const named = new URL(metadata.resource);
+    if (named.origin !== new URL(fallback).origin || named.hash) return fallback;
+    return metadata.resource;
+  } catch {
+    return fallback;
+  }
+}
+
 async function discoverUncached(mcpBaseUrl: string): Promise<OAuthDiscovery> {
   const protectedResourceUrl = wellKnownUrl(mcpBaseUrl, '/.well-known/oauth-protected-resource');
   const protectedResource = validateProtectedResource(
@@ -126,6 +152,7 @@ async function discoverUncached(mcpBaseUrl: string): Promise<OAuthDiscovery> {
 
   return {
     mcpBaseUrl: trimTrailingSlash(mcpBaseUrl),
+    resource: canonicalResource(mcpBaseUrl, protectedResource),
     protectedResource,
     authServer,
   };

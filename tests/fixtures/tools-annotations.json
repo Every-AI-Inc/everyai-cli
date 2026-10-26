@@ -144,7 +144,7 @@
   "openWorld": false
  },
  {
-  "name": "delete_invoice",
+  "name": "void_invoice",
   "readOnly": false,
   "destructive": true,
   "openWorld": false
@@ -276,6 +276,12 @@
   "openWorld": false
  },
  {
+  "name": "approve_prospect",
+  "readOnly": false,
+  "destructive": false,
+  "openWorld": true
+ },
+ {
   "name": "move_deal_stage",
   "readOnly": false,
   "destructive": false,
@@ -288,13 +294,13 @@
   "openWorld": false
  },
  {
-  "name": "set_deal_target_value",
+  "name": "set_deal_value_estimate",
   "readOnly": false,
   "destructive": false,
   "openWorld": false
  },
  {
-  "name": "set_deal_title",
+  "name": "set_deal_name",
   "readOnly": false,
   "destructive": false,
   "openWorld": false
@@ -342,7 +348,7 @@
   "openWorld": false
  },
  {
-  "name": "get_heartbeat_summary",
+  "name": "get_scheduled_task_result",
   "readOnly": true,
   "destructive": false,
   "openWorld": false

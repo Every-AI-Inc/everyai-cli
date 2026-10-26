@@ -109,8 +109,28 @@ function overrideClassification(name: string): Classification | undefined {
     };
   }
 
+  if (name === 'set_recipient_defaults') {
+    return {
+      level: 'destructive',
+      source: 'override',
+      reason: 'set_recipient_defaults changes the audience for future document sends. Require destructive confirmation regardless of server annotations.',
+    };
+  }
+
+  // approve_prospect is the owner/bookkeeper review action next to
+  // approve_pending_deal (the path open to API keys); pin it the same way.
+  if (name === 'approve_prospect') {
+    return {
+      level: 'write',
+      source: 'override',
+      reason:
+        'approve_prospect promotes a pending prospect into an active Deal; hard to undo, so pin write tier regardless of server annotation drift.',
+    };
+  }
+
   // Deal tools (admin MCP, shipped 2026-09-03; create_client_deal renamed to
-  // create_delivery_deal in the 2026-09-09 People/Companies retirement). None
+  // create_delivery_deal in the 2026-09-09 People/Companies retirement, and
+  // set_deal_title to set_deal_name in the 2026-10 naming alignment). None
   // match the send_/delete_/void_/cancel_ name patterns, so without these
   // entries their tier would rest entirely on server annotations.
   if (name === 'create_delivery_deal') {
@@ -122,12 +142,12 @@ function overrideClassification(name: string): Classification | undefined {
     };
   }
 
-  if (name === 'set_deal_title') {
+  if (name === 'set_deal_name') {
     return {
       level: 'write',
       source: 'override',
       reason:
-        'set_deal_title renames a deal, or clears the name back to the system default; pin write tier regardless of server annotation drift.',
+        'set_deal_name renames a deal, or clears the name back to the system default; pin write tier regardless of server annotation drift.',
     };
   }
 
@@ -146,6 +166,27 @@ function overrideClassification(name: string): Classification | undefined {
       source: 'override',
       reason:
         'unlink_deal_item detaches an invoice or proposal from a deal and the automatic matcher never re-links it, so the relationship is gone for good; same destructive tier as end_affiliation.',
+    };
+  }
+
+  // Agent signup tools (2026-10-02). complete_signup commits the organization
+  // name the user confirmed: an ordinary idempotent write that must never need
+  // --allow-destructive. get_signup_status only reports state; pinning it keeps
+  // `every signup` usable without --yes even if its annotations drift.
+  if (name === 'complete_signup') {
+    return {
+      level: 'write',
+      source: 'override',
+      reason:
+        'complete_signup saves the confirmed organization profile and finishes signup; an idempotent write, never destructive.',
+    };
+  }
+
+  if (name === 'get_signup_status') {
+    return {
+      level: 'read',
+      source: 'override',
+      reason: 'get_signup_status reports signup state and unverified profile suggestions; it changes no records.',
     };
   }
 

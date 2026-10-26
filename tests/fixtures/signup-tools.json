@@ -1,0 +1,66 @@
+[
+  {
+    "name": "get_signup_status",
+    "title": "Get signup status",
+    "description": "Report whether the authenticated user's Every account is ready, the one required field, and unverified profile suggestions to confirm with the user. Polling is not needed.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "include_optional_setup_url": { "type": "boolean", "default": true }
+      }
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "signup_status": { "type": "string", "enum": ["needs_profile", "ready"] },
+        "account_ready": { "type": "boolean" },
+        "user": { "type": "object" },
+        "organization": { "type": "object" },
+        "required_fields": { "type": "array", "items": { "type": "string" } },
+        "current_profile": { "type": "object" },
+        "profile_suggestions": { "type": "object" },
+        "background_setup": { "type": "object" },
+        "optional_setup_url": { "type": ["string", "null"] },
+        "optional_setup_url_reason": { "type": ["string", "null"] },
+        "next_tool": { "type": ["string", "null"] }
+      },
+      "required": ["signup_status", "account_ready"]
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "complete_signup",
+    "title": "Complete signup",
+    "description": "Commit the organization name the user confirmed (plus an optional description and public links) and make the account ready. Background setup runs afterwards and never blocks readiness.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "organization_name": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "description": { "type": "string" },
+        "public_links": { "type": "array", "items": { "type": "string" }, "maxItems": 10 }
+      },
+      "required": ["organization_name"]
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "signup_status": { "type": "string", "enum": ["needs_profile", "ready"] },
+        "account_ready": { "type": "boolean" },
+        "saved_fields": { "type": "array", "items": { "type": "string" } },
+        "background_setup": { "type": "object" }
+      },
+      "required": ["signup_status", "account_ready"]
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  }
+]

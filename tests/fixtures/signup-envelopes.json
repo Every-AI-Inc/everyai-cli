@@ -1,0 +1,53 @@
+{
+  "needs_profile": {
+    "signup_status": "needs_profile",
+    "account_ready": false,
+    "user": { "email": "owner@example.com", "name": "Owner" },
+    "organization": { "org_id": "org_new", "name": "Owner", "auto_created": true, "signup_flow_version": 1 },
+    "required_fields": ["organization_name"],
+    "current_profile": { "organization_name": "Owner", "description": null, "public_links": [] },
+    "profile_suggestions": {
+      "status": "ready",
+      "organization_name": { "value": "Acme Studio", "source": "gmail", "confidence": "high" },
+      "description": { "value": "Brand strategy for independent restaurants.", "source": "gmail", "confidence": "medium" },
+      "public_links": [
+        { "url": "https://acme.example", "kind": "website", "source": "gmail", "confidence": "high" }
+      ]
+    },
+    "background_setup": { "blocking": false, "state": "awaiting_signup_completion" },
+    "optional_setup_url": "https://app.every.ai/mcp-connect#token=mock-handoff",
+    "optional_setup_url_reason": null,
+    "next_tool": "complete_signup"
+  },
+  "ready": {
+    "signup_status": "ready",
+    "account_ready": true,
+    "user": { "email": "owner@example.com", "name": "Owner" },
+    "organization": { "org_id": "org_existing", "name": "Acme Studio", "auto_created": false, "signup_flow_version": null },
+    "required_fields": [],
+    "current_profile": { "organization_name": "Acme Studio", "description": null, "public_links": [] },
+    "profile_suggestions": { "status": "unavailable", "reason": "no_evidence" },
+    "background_setup": { "blocking": false, "state": "queued" },
+    "optional_setup_url": null,
+    "optional_setup_url_reason": "unavailable",
+    "next_tool": null
+  },
+  "completed": {
+    "signup_status": "ready",
+    "account_ready": true,
+    "user": { "email": "owner@example.com", "name": "Owner" },
+    "organization": { "org_id": "org_new", "name": "Acme Studio", "auto_created": true, "signup_flow_version": 1 },
+    "required_fields": [],
+    "current_profile": { "organization_name": "Acme Studio", "description": null, "public_links": [] },
+    "saved_fields": ["organization_name"],
+    "background_setup": {
+      "blocking": false,
+      "state": "queued",
+      "business_dna": "skipped_no_sources",
+      "improve_with": ["description", "public_links", "google_workspace"]
+    },
+    "optional_setup_url": null,
+    "optional_setup_url_reason": null,
+    "next_tool": null
+  }
+}

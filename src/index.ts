@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
-import { Command, CommanderError } from 'commander';
+import { Command, CommanderError, Option } from 'commander';
 import { pingCommand } from './commands/ping.js';
 import { docsCommand } from './commands/docs.js';
 import {
@@ -13,22 +13,30 @@ import {
 } from './commands/auth.js';
 import { policyExplainCommand } from './commands/policy.js';
 import {
+  signupCommand,
+  signupCompleteCommand,
+  signupStatusCommand,
+} from './commands/signup.js';
+import {
   toolCallCommand,
   toolsDescribeCommand,
   toolsListCommand,
 } from './commands/tools.js';
 import {
-  contactListCommand,
   dealListCommand,
   dealMoveCommand,
   dealStagesCommand,
   invoiceCreateCommand,
   invoiceListCommand,
   invoiceSendCommand,
+  personListCommand,
+  proposalSendCommand,
+  recipientsGetCommand,
+  recipientsSetCommand,
 } from './commands/aliases.js';
 import { skillsInstallCommand, skillsListCommand } from './commands/skills.js';
 import { CliError } from './lib/errors.js';
-import { emit, emitError } from './lib/output.js';
+import { deprecationNote, emit, emitError } from './lib/output.js';
 import { ExitCode } from './lib/exit-codes.js';
 import { runDefaultFirstRunMenu } from './lib/first-run.js';
 
@@ -87,11 +95,63 @@ withGlobalOptions(
   await docsCommand(program, { json: opts.json, staging: opts.staging });
 });
 
+const signup = withGlobalOptions(
+  program
+    .command('signup')
+    .allowExcessArguments(false)
+    .description('Create an Every account or sign in via one browser step; no TTY needed')
+    .option('--timeout <seconds>', 'how long to wait for the browser authorization', '300')
+    .addHelpText(
+      'after',
+      [
+        '',
+        'With --json, stdout is NDJSON: an authorization_required event with the URL,',
+        'a waiting_for_authorization event, then the result envelope as the last line.',
+        '',
+        'Then finish signup:',
+        '  every signup complete --org-name "Acme Studio" --yes --json',
+        '',
+      ].join('\n'),
+    ),
+).action(async (_options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await signupCommand({ json: opts.json, staging: opts.staging, timeout: opts.timeout });
+});
+
+withGlobalOptions(
+  signup.command('status').description('Show signup status and the profile still needed'),
+).action(async (_options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await signupStatusCommand({ json: opts.json, staging: opts.staging });
+});
+
+withGlobalOptions(
+  signup
+    .command('complete')
+    .description('Finish signup with the organization profile the user confirmed')
+    .requiredOption('--org-name <name>', 'organization name the user confirmed (required)')
+    .option('--description <text>', 'short description of the business')
+    .option('--link <url>', 'public https link (website, LinkedIn, ...); repeatable', collectOption, [])
+    .option('--yes', 'confirm the write (required when non-interactive)')
+    .option('--read-only', 'deny the write (for automation guards)'),
+).action(async (_options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await signupCompleteCommand({
+    json: opts.json,
+    staging: opts.staging,
+    orgName: opts.orgName,
+    description: opts.description,
+    link: opts.link,
+    yes: opts.yes,
+    readOnly: opts.readOnly,
+  });
+});
+
 withGlobalOptions(
   program
     .command('login')
-    .description('Log in (or create an account) with browser-based OAuth and store tokens locally')
-    .option('--create-account', 'create a new Every account, then connect the CLI')
+    .description('Log in with browser OAuth and store tokens (new users: every signup)')
+    .option('--create-account', 'deprecated alias for every signup')
     .option('--org <id|slug|name>', 'verify the workspace selected during login'),
 ).action(async (_options: unknown, command: Command) => {
   const opts = command.optsWithGlobals();
@@ -192,7 +252,7 @@ const toolCommand = withGlobalOptions(
   program.command('tool').description('Invoke a single Every MCP tool'),
 );
 
-function collectOption(value: string, previous: string[]): string[] {
+function collectOption(value: string, previous: string[] = []): string[] {
   previous.push(value);
   return previous;
 }
@@ -265,17 +325,27 @@ withGlobalOptions(
   withToolExecutionOptions(
     invoiceCommand
       .command('create')
-      .description('Create a simple draft invoice')
-      .option('--client <name>', 'company name to resolve via list_companies (deprecated alias for --company)')
-      .option('--company <name>', 'company name to resolve via list_companies')
-      .option('--person <name>', 'person name to resolve via list_people')
-      .option('--client-id <id>', 'client id; skips name resolution')
+      .description('Create a simple draft invoice for a Company or a Person')
+      .option('--company <name>', 'Company name to resolve via list_companies')
+      .option('--person <name>', 'Person name to resolve via list_people')
+      .option('--company-id <id>', 'Company id; skips name resolution')
+      .option('--person-id <id>', 'Person id; skips name resolution')
+      .addOption(new Option('--client <name>', 'deprecated alias for --company').hideHelp())
+      .addOption(
+        new Option('--client-id <id>', 'deprecated: use --company-id or --person-id').hideHelp(),
+      )
       .requiredOption('--amount <n>', 'unit price for the single line item')
       .option('--description <text>', 'line item description')
       .option('--quantity <q>', 'line item quantity'),
   ),
 ).action(async (_options: unknown, command: Command) => {
   const opts = command.optsWithGlobals();
+  if (opts.client !== undefined) {
+    deprecationNote('`--client` is deprecated; use `--company` (or `--person` for a Person).');
+  }
+  if (opts.clientId !== undefined) {
+    deprecationNote('`--client-id` is deprecated; use `--company-id` or `--person-id`.');
+  }
   await invoiceCreateCommand({
     json: opts.json,
     staging: opts.staging,
@@ -287,6 +357,8 @@ withGlobalOptions(
     client: opts.client,
     company: opts.company,
     person: opts.person,
+    companyId: opts.companyId,
+    personId: opts.personId,
     clientId: opts.clientId,
     amount: opts.amount,
     description: opts.description,
@@ -323,7 +395,8 @@ withGlobalOptions(
   withToolExecutionOptions(
     invoiceCommand
       .command('send')
-      .description('Send an invoice')
+      .description('Preview recipients, confirm, and send an invoice')
+      .option('--expect-digest <digest>', 'require the digest from the approved recipient preview')
       .argument('<invoice_id>', 'invoice id'),
   ),
 ).action(async (invoiceId: string, _options: unknown, command: Command) => {
@@ -331,13 +404,52 @@ withGlobalOptions(
   await invoiceSendCommand(invoiceId, {
     json: opts.json,
     staging: opts.staging,
-    noCache: opts.noCache,
+    noCache: opts.cache === false,
     yes: opts.yes,
     allowDestructive: opts.allowDestructive,
     readOnly: opts.readOnly,
     timeout: opts.timeout,
+    expectDigest: opts.expectDigest,
   });
 });
+
+const proposalCommand = withToolExecutionOptions(withGlobalOptions(
+  program.command('proposal').description('Work with proposals'),
+));
+withGlobalOptions(withToolExecutionOptions(
+  proposalCommand.command('send').description('Preview recipients, confirm, and send a proposal')
+    .option('--expect-digest <digest>', 'require the digest from the approved recipient preview')
+    .argument('<proposal>', 'proposal id'),
+)).action(async (proposal: string, _options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await proposalSendCommand(proposal, { ...opts, noCache: opts.cache === false });
+});
+
+const recipientsCommand = withToolExecutionOptions(withGlobalOptions(
+  program.command('recipients').description('Read or set invoice and proposal recipients'),
+));
+for (const action of ['get', 'set'] as const) {
+  const command = withGlobalOptions(withToolExecutionOptions(
+    recipientsCommand.command(action).description(`${action === 'get' ? 'Read' : 'Set'} exact To and CC recipients`)
+      .argument('<party>', 'Person or Company name')
+      .requiredOption('--kind <kind>', 'invoice or proposal')
+      .option('--company <name>', 'Company name to resolve via list_companies')
+      .option('--person <name>', 'Person name to resolve via list_people')
+      .option('--company-id <id>', 'Company id; skips name resolution')
+      .option('--person-id <id>', 'Person id; skips name resolution'),
+  ));
+  if (action === 'set') {
+    command.requiredOption('--to <email-or-id>', 'To email address or eligible method id')
+      .option('--cc <email-or-id>', 'CC email address or eligible method id; repeat for more recipients', collectOption)
+      .option('--clear-cc', 'remove all CC recipients');
+  }
+  command.action(async (party: string, _options: unknown, cmd: Command) => {
+    const opts = cmd.optsWithGlobals();
+    // Commander represents --no-cache as cache:false.
+    opts.noCache = opts.cache === false;
+    await (action === 'get' ? recipientsGetCommand : recipientsSetCommand)(party, opts);
+  });
+}
 
 const dealCommand = withToolExecutionOptions(
   withGlobalOptions(
@@ -413,37 +525,58 @@ withGlobalOptions(
   });
 });
 
-const contactCommand = withToolExecutionOptions(
+/**
+ * Register `list` under `every person` and under the hidden, deprecated
+ * `every contact` alias ("contact" is retired vocabulary: the product's people
+ * model is People and Companies).
+ */
+function addPersonListCommand(parent: Command, deprecation?: string): void {
   withGlobalOptions(
-    program
-      .command('contact')
-      .description('Work with contacts')
-      .addHelpText('after', TOOL_CALL_HELP),
+    withToolExecutionOptions(
+      parent
+        .command('list')
+        .description('List People')
+        .option('--search <q>', 'search People by name, email, phone, or employer')
+        .option('--limit <n>', 'maximum number of People to return'),
+    ),
+  ).action(async (_options: unknown, command: Command) => {
+    if (deprecation) deprecationNote(deprecation);
+    const opts = command.optsWithGlobals();
+    await personListCommand({
+      json: opts.json,
+      staging: opts.staging,
+      noCache: opts.noCache,
+      yes: opts.yes,
+      allowDestructive: opts.allowDestructive,
+      readOnly: opts.readOnly,
+      timeout: opts.timeout,
+      search: opts.search,
+      limit: opts.limit,
+    });
+  });
+}
+
+addPersonListCommand(
+  withToolExecutionOptions(
+    withGlobalOptions(
+      program
+        .command('person')
+        .description('Work with People')
+        .addHelpText('after', TOOL_CALL_HELP),
+    ),
   ),
 );
 
-withGlobalOptions(
+addPersonListCommand(
   withToolExecutionOptions(
-    contactCommand
-      .command('list')
-      .description('List contacts')
-      .option('--search <q>', 'contact name search query')
-      .option('--limit <n>', 'maximum number of contacts to return'),
+    withGlobalOptions(
+      program
+        .command('contact', { hidden: true })
+        .description('Deprecated alias for every person'),
+    ),
   ),
-).action(async (_options: unknown, command: Command) => {
-  const opts = command.optsWithGlobals();
-  await contactListCommand({
-    json: opts.json,
-    staging: opts.staging,
-    noCache: opts.noCache,
-    yes: opts.yes,
-    allowDestructive: opts.allowDestructive,
-    readOnly: opts.readOnly,
-    timeout: opts.timeout,
-    search: opts.search,
-    limit: opts.limit,
-  });
-});
+  '`every contact` is deprecated; use `every person`.',
+);
 
 const policyCommand = withGlobalOptions(
   program.command('policy').description('Explain local tool safety policy'),
@@ -526,7 +659,7 @@ async function maybeRunFirstRunMenu(): Promise<boolean> {
     staging: program.opts().staging,
     showHelp: () => program.outputHelp(),
     login: () => loginCommand({ staging: program.opts().staging, skipMenu: true }),
-    createAccount: () => loginCommand({ staging: program.opts().staging, createAccount: true }),
+    createAccount: () => signupCommand({ staging: program.opts().staging }),
   });
   return true;
 }

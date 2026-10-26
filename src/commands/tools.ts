@@ -4,6 +4,7 @@ import { CliError } from '../lib/errors.js';
 import { ExitCode } from '../lib/exit-codes.js';
 import { callTool, listTools, McpTool } from '../lib/mcp.js';
 import { emit } from '../lib/output.js';
+import { recipientBinding, recipientLines } from '../lib/recipients.js';
 import {
   Classification,
   classify,
@@ -58,7 +59,36 @@ export interface ToolCallData {
 
 type DataAugmenter = (data: ToolCallData) => ToolCallData | Promise<ToolCallData>;
 
+export interface InvokeHooks {
+  /** Error to raise when the server does not list the tool (default: generic not_found). */
+  missingTool?: (name: string) => CliError;
+  /** Runs after policy and target checks, before the local confirmation prompt. */
+  beforeConfirmation?: () => Promise<void>;
+  /** Document aliases show recipients and use a yes/no prompt. */
+  recipientConfirmation?: boolean;
+}
+
+/**
+ * Next steps for a tool refused because the account's signup is unfinished
+ * (`signup_incomplete`). Older CLIs show only the server's text; this one names
+ * the commands that finish it.
+ */
+export const SIGNUP_INCOMPLETE_GUIDANCE =
+  'Finish signup first: run `every signup status` to see what is needed, confirm the ' +
+  'organization name with the user, then run `every signup complete --org-name "<name>" --yes`.';
+
 export type ToolExecutionOptions = Omit<ToolCallOptions, 'args' | 'arg'>;
+
+const RECIPIENT_ERROR_MESSAGES: Record<string, string> = {
+  send_preparation_stale: 'The recipients changed after the preview. Run the command again to see the new recipients.',
+  recipient_required: 'Choose a To recipient with every recipients set <party> --kind invoice|proposal --to <email-or-id> before you send.',
+  recipient_model_quiet: 'Recipient changes and sends are paused. Try again later.',
+  recipient_model_unavailable: 'The recipient service is unavailable. Try again later.',
+};
+
+function recipientErrorCode(message: string): string {
+  return message.trim().replace(/^Error executing tool ['"]?(?:send_invoice|send_proposal|preview_document_send|get_recipient_defaults|set_recipient_defaults)['"]?:\s*/, '');
+}
 
 function emitCommand<T>(data: T, human: string, opts: BaseCommandOptions): void {
   if (opts.json) emit(data, { json: true, staging: opts.staging });
@@ -111,9 +141,12 @@ function toolsListHuman(tools: ClassifiedTool[]): string {
   return lines.join('\n');
 }
 
-function findTool(tools: McpTool[], name: string): McpTool {
+function findTool(tools: McpTool[], name: string, hooks: InvokeHooks = {}): McpTool {
   const tool = tools.find((candidate) => candidate.name === name);
-  if (!tool) throw new CliError(`Tool not found: ${name}`, ExitCode.NOT_FOUND, 'not_found');
+  if (!tool) {
+    throw hooks.missingTool?.(name) ??
+      new CliError(`Tool not found: ${name}`, ExitCode.NOT_FOUND, 'not_found');
+  }
   return tool;
 }
 
@@ -334,22 +367,24 @@ export async function invokeToolCall(
   name: string,
   opts: ToolExecutionOptions = {},
   argsFactory: ArgsFactory = async () => ({}),
+  hooks: InvokeHooks = {},
 ): Promise<ToolCallData> {
   const baseUrl = resolveBaseUrl({ staging: opts.staging });
   const token = await getToken({ baseUrl });
   const tools = await listTools(baseUrl, token, { noCache: opts.noCache });
-  const tool = findTool(tools, name);
+  const tool = findTool(tools, name, hooks);
   const classification = classify(tool);
   const interactive = Boolean(process.stdin.isTTY && process.stderr.isTTY);
   const readOnlyMode = opts.readOnly === true || process.env.EVERY_READ_ONLY === '1';
   const requirement = requirementFor(classification.level, {
     interactive,
     yes: opts.yes,
-    allowDestructive: opts.allowDestructive,
+    allowDestructive: opts.allowDestructive || hooks.recipientConfirmation,
     readOnlyMode,
   });
+  const needsRecipientYes = hooks.recipientConfirmation && !interactive && !opts.yes && !readOnlyMode;
 
-  if (!requirement.allowed) {
+  if (!requirement.allowed && !needsRecipientYes) {
     throw new CliError(requirement.denialMessage ?? 'Tool call denied by policy.', ExitCode.PERMISSION, 'permission');
   }
 
@@ -359,8 +394,14 @@ export async function invokeToolCall(
   const target = gated ? targetLabel(userinfo, environment) : undefined;
   let locallyConfirmed = opts.yes === true;
 
+  await hooks.beforeConfirmation?.();
+  if (needsRecipientYes) {
+    throw new CliError('Re-run with --yes to send to these recipients.', ExitCode.USAGE, 'usage');
+  }
+
   if (requirement.prompt) {
-    const confirmed = await promptForTool(name, classification.level, requirement.prompt, target);
+    const confirmed = await promptForTool(name, classification.level,
+      hooks.recipientConfirmation ? 'confirm' : requirement.prompt, target);
     if (!confirmed) {
       throw new CliError('Tool call cancelled.', ExitCode.PERMISSION, 'permission');
     }
@@ -382,6 +423,12 @@ export async function invokeToolCall(
       if (classification.level === 'destructive') {
         const timeout = destructiveTimeoutError(err, name);
         if (timeout) throw timeout;
+      }
+      if (err instanceof CliError && err.code === 'generic') {
+        const code = recipientErrorCode(err.message);
+        if (RECIPIENT_ERROR_MESSAGES[code]) {
+          throw new CliError(RECIPIENT_ERROR_MESSAGES[code], err.exitCode, code, err.details);
+        }
       }
       throw err;
     }
@@ -427,6 +474,18 @@ export async function invokeToolCall(
     // under error.tool_error; older servers send none, so this falls back to
     // 'generic' and behaves exactly as before.
     const toolError = structuredToolError(result.structuredContent);
+    if (toolError?.code === 'signup_incomplete') {
+      throw new CliError(`${rawMessage}\n${SIGNUP_INCOMPLETE_GUIDANCE}`, ExitCode.GENERIC, toolError.code, {
+        tool_error: toolError,
+        next_steps: ['every signup status --json', 'every signup complete --org-name "<name>" --yes --json'],
+      });
+    }
+    // Some server exceptions return only their exact typed code as text.
+    const recipientCode = toolError?.code ?? recipientErrorCode(rawMessage);
+    if (RECIPIENT_ERROR_MESSAGES[recipientCode]) {
+      throw new CliError(RECIPIENT_ERROR_MESSAGES[recipientCode], ExitCode.GENERIC, recipientCode,
+        toolError ? { tool_error: toolError } : undefined);
+    }
     if (toolError) {
       throw new CliError(rawMessage, ExitCode.GENERIC, toolError.code, { tool_error: toolError });
     }
@@ -453,9 +512,11 @@ export async function executeToolCall(
   opts: ToolExecutionOptions = {},
   argsFactory: ArgsFactory = async () => ({}),
   augmentData: DataAugmenter = (data) => data,
+  hooks: InvokeHooks = {},
+  human: (data: ToolCallData) => string = toolCallHuman,
 ): Promise<void> {
-  const data = await augmentData(await invokeToolCall(name, opts, argsFactory));
-  emitCommand(data, toolCallHuman(data), opts);
+  const data = await augmentData(await invokeToolCall(name, opts, argsFactory, hooks));
+  emitCommand(data, human(data), opts);
   await maybeShowSkillHint();
 }
 
@@ -463,5 +524,15 @@ export async function toolCallCommand(
   name: string,
   opts: ToolCallOptions = {},
 ): Promise<void> {
+  if (name === 'send_invoice' || name === 'send_proposal') {
+    const args = await assembleArgs(opts);
+    const binding = recipientBinding(args.recipients, 'argument');
+    await executeToolCall(name, opts, async () => args, undefined, {
+      beforeConfirmation: async () => {
+        process.stderr.write(`${recipientLines({ recipients: binding })}\n`);
+      },
+    });
+    return;
+  }
   await executeToolCall(name, opts, () => assembleArgs(opts));
 }
