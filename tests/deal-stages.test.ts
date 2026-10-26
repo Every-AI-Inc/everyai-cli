@@ -1,7 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { parsePipelineStages, unknownStageMessage } from '../src/commands/aliases.js';
+import { parsePipelineStages, stagesHuman, unknownStageMessage } from '../src/commands/aliases.js';
 
 describe('deal stage helpers', () => {
+  it('keeps the table aligned for a 40-character label', () => {
+    const long = 'Discovery call booked with decision maker'.slice(0, 40);
+    expect(long).toHaveLength(40);
+    const lines = stagesHuman(parsePipelineStages({
+      stages: [
+        { key: 'lead', label: 'Lead', role: 'lead', criteria: 'x' },
+        { key: 'stage_1a2b3c4d', label: long, role: 'middle', criteria: 'y' },
+      ],
+    })).split('\n');
+    const keyColumn = lines[0].indexOf('key');
+    expect(lines[2].indexOf('lead', 4)).toBe(keyColumn);
+    expect(lines[3].indexOf('stage_1a2b3c4d')).toBe(keyColumn);
+  });
+
   it('reads the ordered stage list from get_pipeline_settings', () => {
     const stages = parsePipelineStages({
       stages: [

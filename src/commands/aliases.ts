@@ -678,11 +678,12 @@ const LEGACY_STAGE_ROLES: Record<string, string> = {
   lost: 'lost',
 };
 
-function stagesHuman(stages: PipelineStage[]): string {
+export function stagesHuman(stages: PipelineStage[]): string {
   if (!stages.length) {
     return 'No pipeline stages returned. Run: every tool call get_pipeline_settings --json';
   }
-  const labelWidth = Math.min(28, Math.max('label'.length, ...stages.map((s) => s.label.length)));
+  // Labels can be up to 40 characters (the server limit), so the column fits them all.
+  const labelWidth = Math.min(40, Math.max('label'.length, ...stages.map((s) => s.label.length)));
   const keyWidth = Math.min(20, Math.max('key'.length, ...stages.map((s) => s.key.length)));
   const roleWidth = Math.max('role'.length, ...stages.map((s) => s.role.length));
   const lines = [
