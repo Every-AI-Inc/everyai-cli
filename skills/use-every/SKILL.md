@@ -113,7 +113,7 @@ Every workspace starts with Lead, Opportunity, Won and Lost, and an admin can ad
 every deal stages --json
 ```
 
-Each stage has a `label` (what the user sees), a stable `key` (`lead`, `won`, `lost`, or a generated `stage_…` for added stages) and a `role` (`lead`, `middle`, `won`, `lost`). `every deal move` and `every deal list --stage` accept a key or a label (case-insensitive); legacy names such as `found`, `qualified`, `closed_won` and `closed_lost` still resolve. A value that matches no current stage fails with `error.code: "stage_not_found"`, and `error.tool_error.available_stages` lists the valid ones — pick from that list, never guess. `create_deal` accepts any open stage (Lead or a middle stage); Won and Lost are reached by moving a deal.
+Each stage has a `label` (what the user sees), a stable `key` (`lead`, `won`, `lost`, or a generated `stage_…` for added stages) and a `role` (`lead`, `middle`, `won`, `lost`). `every deal move` and `every deal list --stage` accept a key or a label (case-insensitive); legacy names such as `found`, `qualified`, `closed_won` and `closed_lost` still resolve. A value that matches no current stage fails with `error.code: "stage_not_found"`, and `error.tool_error.available_stages` lists the valid ones — pick from that list, never guess. `create_deal` accepts any current stage, Won and Lost included (a deal created there records a past outcome).
 
 ```bash
 every deal move <deal_id> "Proposal sent" --yes --json
