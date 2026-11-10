@@ -327,6 +327,7 @@ Find the deals that need work in one call per filter, with no per-deal poll:
 
 - `view_deal` with `include=["plan","draft","auto_sends"]` gives every open plan step (id, kind, title, `do_by` on the first step), the full draft with its `channel` and `draft_version`, and scheduled sends with their ids.
 - `view_entity_timeline` (`entity_type=deal`, `entity_id`, and the `after` and `after_id` pair from the last run's `newest_cursor`) gives what happened since your last read. Keep the new `newest_cursor` for the next run.
+- A stage-change item carries `reason` when the move had a reason. Its `summary` names the stages only.
 - Read People or Companies (`view_person`, `view_company`) only when the deal needs them.
 
 ## 4. Follow-ups
