@@ -88,7 +88,7 @@ every deal view <deal_id> [--plan] [--draft] [--auto-sends]
 every deal create (--person-id <id> | --company-id <id> | --name <name> [--email <email>])
                   [--stage <s>] [--deal-name <name>] [--value <n>] [--owner <owner>] [--goal <text>]
                                            # write: needs --yes
-every deal update <deal_id> [--name <name>] [--value <n>] [--owner <owner>] [--goal <text>]
+every deal update <deal_id> [--name <name>] [--value <n>] [--owner <owner>]
                   [--person-id <id> | --company-id <id>] [--add-member <id> ...] [--remove-member <id> ...]
                                            # write: needs --yes; a flag you leave out does not change
 every deal move <deal_id> <stage>          # write: needs --yes; stage = key or label

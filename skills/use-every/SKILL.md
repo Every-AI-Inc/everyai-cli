@@ -84,7 +84,7 @@ Each short command calls one tool, with the same `--json` envelope, exit codes a
 | `every person create --name <name> [--email] [--phone] [--job-title] ...` | `create_person` |
 | `every deal view <deal_id> [--plan] [--draft] [--auto-sends]` | `view_deal` (`include`) |
 | `every deal create (--person-id <id> \| --company-id <id> \| --name <name> [--email <email>]) [--stage] [--deal-name] [--value] [--owner] [--goal]` | `create_deal` |
-| `every deal update <deal_id> [--name] [--value] [--owner] [--goal] [--person-id \| --company-id] [--add-member <id>] [--remove-member <id>]` | `update_deal` |
+| `every deal update <deal_id> [--name] [--value] [--owner] [--person-id \| --company-id] [--add-member <id>] [--remove-member <id>]` | `update_deal` |
 | `every deal list [--attention <reason>] [--stale-days <n>] [--owner <owner> \| --mine] [--since <time>] [--sort last_activity_at]` | `list_deals` |
 | `every deal outreach edit <deal_id> [--subject] [--body \| --body-file <path>] [--recipient <email>] [--thread <id\|new>]` | `deal_outreach` `action=edit` (write) |
 | `every deal outreach send <deal_id> [--draft-version <v>]` | `view_deal` draft, then `deal_outreach` `action=send` (destructive) |

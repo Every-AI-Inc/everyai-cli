@@ -340,7 +340,6 @@ export async function dealUpdateCommand(dealId: string, opts: DealUpdateOptions 
   const party = partyFromIds(opts);
   const value = parseValue(opts.value);
   const owner = ownerValue(opts.owner);
-  const goal = goalValue(opts.goal);
   const add = memberList(opts.addMember);
   const remove = memberList(opts.removeMember);
 
@@ -351,9 +350,10 @@ export async function dealUpdateCommand(dealId: string, opts: DealUpdateOptions 
   if (party) args.party = party;
   if (owner) args.owner = owner;
   if (add || remove) args.members = { ...(add ? { add } : {}), ...(remove ? { remove } : {}) };
-  if (goal) args.goal = goal;
+  // No --goal here: update_deal replaces the whole goal, so a summary alone
+  // clears the services and the targeting. Use `every tool call update_deal`.
   if (Object.keys(args).length === 1) {
-    throw usage('Nothing to change. Pass at least one of --name, --value, --owner, --goal, --person-id, --company-id, --add-member or --remove-member');
+    throw usage('Nothing to change. Pass at least one of --name, --value, --owner, --person-id, --company-id, --add-member or --remove-member');
   }
 
   await withApprovalLink(opts, () => executeToolCall('update_deal', opts, async () => args));

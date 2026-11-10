@@ -111,10 +111,10 @@ describe('short commands: argument mapping', () => {
     [['deal', 'list', '--owner', 'pat@example.test', '--stage', 'lead'],
       [{ name: 'list_deals', arguments: { owner: 'pat@example.test', stage: 'lead' } }]],
     [['deal', 'update', 'deal_1', '--name', 'Q3 brand refresh', '--value', '1500', '--owner', 'me',
-      '--goal', 'Brand work', '--company-id', 'company_1', '--add-member', 'user_1', '--add-member', 'user_2',
+      '--company-id', 'company_1', '--add-member', 'user_1', '--add-member', 'user_2',
       '--remove-member', 'user_3', '--yes'],
     [{ name: 'update_deal', arguments: {
-      deal_id: 'deal_1', name: 'Q3 brand refresh', value_estimate: 1500, owner: 'me', goal: { summary: 'Brand work' },
+      deal_id: 'deal_1', name: 'Q3 brand refresh', value_estimate: 1500, owner: 'me',
       party: { kind: 'company', id: 'company_1' }, members: { add: ['user_1', 'user_2'], remove: ['user_3'] },
     } }]],
     [['deal', 'update', 'deal_1', '--name', '', '--yes'], [{ name: 'update_deal', arguments: { deal_id: 'deal_1', name: '' } }]],

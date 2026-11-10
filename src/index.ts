@@ -585,7 +585,6 @@ withGlobalOptions(
       .option('--name <name>', 'what the deal is called; "" resets the default name')
       .option('--value <amount>', 'expected value; 0 clears it')
       .option('--owner <owner>', 'new owner: me, a teammate\'s email, or a user id')
-      .option('--goal <text>', 'replace what the deal sells')
       .option('--person-id <id>', 'set the deal\'s Person')
       .option('--company-id <id>', 'set the deal\'s Company')
       .option('--add-member <id>', 'add a teammate (user id or email); repeatable', collectOption)
@@ -598,7 +597,6 @@ withGlobalOptions(
     name: opts.name,
     value: opts.value,
     owner: opts.owner,
-    goal: opts.goal,
     personId: opts.personId,
     companyId: opts.companyId,
     addMember: opts.addMember,
