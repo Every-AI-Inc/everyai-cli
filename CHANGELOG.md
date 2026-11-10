@@ -1,5 +1,42 @@
 # @everyai/cli
 
+## 0.10.0
+
+### Minor Changes
+
+- 0e6309f: Teach agents to run the deals and prospects pipeline on a schedule, and classify the two new deal tools locally.
+
+  - The bundled `use-every` skill now has two parts. **General use** is the skill as before. **Agent automation** is the routine for a scheduled agent: start each run with `get_workspace_priorities` and its `pending_approvals`, sweep `list_deals` with the `attention` filters and `updated_since`, read `view_deal` with `include` and `view_entity_timeline` with `after`, edit and send the deal's message with `deal_outreach` (`draft_version`), close plan steps with `log_deal_activity` `plan_action_outcome`, move stages with a `reason`, prune with `archive_records` and `restore_records`, and approve, merge or reject prospects. A send waits for the owner in Settings → Approvals for up to 24 hours, and the next run repeats the identical call.
+  - `update_deal` replaces `set_deal_name` and `set_deal_value_estimate`, which stay as deprecated aliases on the server. The skill teaches `update_deal`.
+  - Local policy: `update_deal` is pinned to write. `deal_outreach` is pinned to destructive for all actions, because it can send a message to real recipients and its name does not match the `send_` rule. Non-interactive calls need `--yes --allow-destructive`; the server approval still applies.
+
+- d76766d: Pipeline stages are now per workspace. Every workspace starts with Lead, Opportunity, Won and Lost, and an admin can add, rename, reorder or retire the stages between Lead and Won/Lost in the Every app, so the CLI no longer hard-codes the four defaults.
+
+  - `every deal move <deal_id> <stage>` and `every deal list --stage <stage>` drop the client-side `lead|opportunity|won|lost` check. The value (a stage key or a label such as `"Proposal sent"`, case-insensitive; legacy names like `closed_won` still resolve) goes to the server unchanged.
+  - New `every deal stages` lists the workspace's stages in order from `get_pipeline_settings`: label, key, role (`lead`, `middle`, `won`, `lost`) and a one-line criteria summary. `--json` adds a normalized `stages` array next to the raw tool result.
+  - An unknown or retired stage now reads `Unknown stage "<input>". Available stages: Lead, Discovery booked, ...`, built from the server's `stage_not_found` refusal. `error.code` is `stage_not_found` and `error.tool_error.available_stages` carries the full list for scripts. Exit code stays `1`.
+  - The bundled `use-every` skill documents stage discovery and the key-or-label rule.
+
+  Against a server that predates customizable stages, `deal move` and `deal list --stage` with one of the four defaults behave as before; any other value is rejected by the server's schema instead of locally, and `every deal stages` falls back to the four default stages from the older settings map.
+
+- 5b82582: Short commands for Companies, People, Deals, deal outreach and approvals. Each one calls one tool, with the same `--json` envelope, exit codes and safety gates as the other short commands. `every tool call <tool>` stays valid for every tool.
+
+  - `every company list [--search] [--limit]`, `every company view <id>` and `every company create --name <name>` with `--email`, `--phone`, `--website`, `--industry`, `--address`, `--lead-source` and `--notes`.
+  - `every person view <id>` and `every person create --name <name>` with `--email`, `--phone`, `--job-title`, `--company`, `--location`, `--headline`, `--industry`, `--address` and `--notes`. `every person list` is unchanged.
+  - `every deal view <deal_id> [--plan] [--draft] [--auto-sends]` adds the open plan steps, the unsent draft with its draft version, and the scheduled sends.
+  - `every deal create` takes `--person-id`, `--company-id`, or `--name` and `--email` for a new Person, plus `--stage`, `--deal-name`, `--value`, `--owner` and `--goal`.
+  - `every deal update <deal_id>` changes only the fields you pass: `--name`, `--value`, `--owner`, `--person-id` or `--company-id`, `--add-member` and `--remove-member`. A call with no change is refused. A goal change stays on `every tool call update_deal`, because the server replaces the whole goal.
+  - `every deal list` adds `--attention` (`needs_reply`, `step_due`, `draft_ready`, `stale`, repeat it or use a comma list), `--stale-days`, `--owner` and `--mine`, `--since` and `--sort last_activity_at`. With these flags, the human output is a table with the last activity and the next step. A call without them sends the same arguments and prints the same output as before.
+  - `every deal outreach edit <deal_id>` (`--subject`, `--body` or `--body-file`, `--recipient`, `--thread`) and `every deal outreach cancel <deal_id> --send-id <id>` are ordinary writes: `--yes` without a TTY.
+  - `every deal outreach send <deal_id>` reads the draft, shows its channel, recipient, subject and text, and sends that exact draft version. `--draft-version <v>` sends a version you already have. It is destructive: `--yes --allow-destructive` without a TTY. Every then holds the send for the owner: exit `4`, `error.mcp_gate`, and `error.approvals_url` with the Settings > Approvals link.
+  - `every approvals [--all]` lists the requests that wait for approval in Every: status, tool, deal id and action, the connection that asked, and the created and expiry times. By default it shows the pending and approved requests of this connection. `--all` shows every request of the last 24 hours. It exits `0` with a clear message when the server cannot report approvals.
+  - `every tool call deal_outreach` stays destructive for every action. `every policy explain deal_outreach` now says that the short commands gate by action.
+  - The bundled `use-every` skill lists the short commands and their tools.
+
+### Patch Changes
+
+- 44ab229: When admin-mcp refuses a request with a reason, the CLI now shows that reason. Before, it showed only `MCP <method> failed for <url>: HTTP <status>`. For example, a sign-in that did not select a workspace now prints "This sign-in did not select a workspace. Sign in again and pick one (Every CLI: every org switch). (HTTP 403)". With `--json`, the error also has `http_status` and `server_error` (for example `workspace_not_selected`, `workspace_access_removed` or `org_binding_unavailable`). The exit code and `error.code` do not change. A response without a reason keeps the old message.
+
 ## 0.9.0
 
 ### Minor Changes
