@@ -84,6 +84,57 @@ describe('mcpCall', () => {
     });
   });
 
+  it.each([
+    [
+      403,
+      'workspace_not_selected',
+      'This sign-in did not select a workspace. Sign in again and pick one (Every CLI: every org switch).',
+      ExitCode.PERMISSION,
+      'permission',
+    ],
+    [
+      403,
+      'workspace_access_removed',
+      'You are no longer a member of the workspace this sign-in selected. Sign in again and pick a workspace (Every CLI: every org switch).',
+      ExitCode.PERMISSION,
+      'permission',
+    ],
+    [
+      503,
+      'org_binding_unavailable',
+      'Every could not confirm your workspace just now. Try again in a moment.',
+      ExitCode.NETWORK,
+      'network',
+    ],
+  ])('shows the server reason for HTTP %s %s', async (status, error, description, exitCode, code) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(JSON.stringify({ error, error_description: description }), {
+          status,
+          headers: { 'content-type': 'application/json' },
+        }),
+      ),
+    );
+
+    await expect(mcpCall('https://mcp.example.test', 'token-1', 'tools/call')).rejects.toMatchObject({
+      message: `${description} (HTTP ${status})`,
+      exitCode,
+      code,
+      details: { http_status: status, server_error: error },
+    });
+  });
+
+  it('keeps the generic status message for a body without a reason', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>bad gateway</html>', { status: 502 })));
+
+    await expect(mcpCall('https://mcp.example.test', 'token-1', 'tools/list')).rejects.toMatchObject({
+      message: 'MCP tools/list failed for https://mcp.example.test/: HTTP 502',
+      code: 'network',
+      details: { http_status: 502 },
+    });
+  });
+
   it('maps network failures and timeouts to network errors', async () => {
     vi.stubGlobal(
       'fetch',
