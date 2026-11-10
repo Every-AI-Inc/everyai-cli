@@ -2,7 +2,7 @@
 name: use-every
 description: Drive the Every AI CLI (`every`) to manage the user's service business — invoices, People, Companies, proposals, deals, pipeline, payments, services, custom fields, and scheduled tasks. Use when the user asks “who owes me money?”, wants a lead or deal follow-up, asks to sign up for Every, asks to look up, create, update, convert, or send a business record, mentions their Every workspace, or asks an agent to run their deals and prospects on a schedule.
 metadata:
-  every-skill-version: "6"
+  every-skill-version: "7"
 ---
 
 # Use Every
@@ -70,6 +70,28 @@ every tools list --json
 every tools describe <name> --json
 every policy explain <name> --json
 ```
+
+## Short Commands
+
+Each short command calls one tool, with the same `--json` envelope, exit codes and safety gates. `every tool call <tool>` stays valid for every tool.
+
+| Command | Tool |
+|-|-|
+| `every company list [--search <q>] [--limit <n>]` | `list_companies` |
+| `every company view <company_id>` | `view_company` |
+| `every company create --name <name> [--email] [--phone] [--website] ...` | `create_company` |
+| `every person view <person_id>` | `view_person` |
+| `every person create --name <name> [--email] [--phone] [--job-title] ...` | `create_person` |
+| `every deal view <deal_id> [--plan] [--draft] [--auto-sends]` | `view_deal` (`include`) |
+| `every deal create (--person-id <id> \| --company-id <id> \| --name <name> [--email <email>]) [--stage] [--deal-name] [--value] [--owner] [--goal]` | `create_deal` |
+| `every deal update <deal_id> [--name] [--value] [--owner] [--goal] [--person-id \| --company-id] [--add-member <id>] [--remove-member <id>]` | `update_deal` |
+| `every deal list [--attention <reason>] [--stale-days <n>] [--owner <owner> \| --mine] [--since <time>] [--sort last_activity_at]` | `list_deals` |
+| `every deal outreach edit <deal_id> [--subject] [--body \| --body-file <path>] [--recipient <email>] [--thread <id\|new>]` | `deal_outreach` `action=edit` (write) |
+| `every deal outreach send <deal_id> [--draft-version <v>]` | `view_deal` draft, then `deal_outreach` `action=send` (destructive) |
+| `every deal outreach cancel <deal_id> --send-id <id>` | `deal_outreach` `action=cancel` (write) |
+| `every approvals [--all]` | `get_workspace_priorities` `pending_approvals` |
+
+`every deal outreach send` without `--draft-version` shows the draft and sends that exact version. Every then holds the send for the owner: exit `4` with `error.mcp_gate` and `error.approvals_url`.
 
 ## Safety Rules
 
