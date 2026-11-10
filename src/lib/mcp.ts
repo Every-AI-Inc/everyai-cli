@@ -180,6 +180,49 @@ async function unauthorizedError(
   return new CliError(apiKeyRejectedMessage(baseUrl, reason), ExitCode.AUTH, 'auth');
 }
 
+/**
+ * Explain a non-401 refusal with the server's own words when it sent them.
+ *
+ * admin-mcp refuses some requests on purpose with an RFC 6750 style body,
+ * for example `{"error":"workspace_not_selected","error_description":"..."}`
+ * (403) or `{"error":"org_binding_unavailable",...}` (503). The description
+ * already tells the user what to do, so the CLI shows it. A body that is not
+ * that shape keeps the generic "HTTP <status>" message. The exit code and the
+ * machine `code` come from the status only, so scripts see no change.
+ */
+async function httpStatusError(response: Response, method: string, url: string): Promise<CliError> {
+  const classified = classifyHttpStatus(response.status);
+  let raw = '';
+  try {
+    raw = await response.text();
+  } catch {
+    // A body that cannot be read falls back to the status message.
+  }
+
+  const reason = authErrorReasonFromBody(raw);
+  const serverError = serverErrorCode(raw);
+  const details: Record<string, unknown> = { http_status: response.status };
+  if (serverError !== undefined) details.server_error = serverError;
+
+  const message =
+    reason === undefined
+      ? `MCP ${method} failed for ${url}: HTTP ${response.status}`
+      : `${reason} (HTTP ${response.status})`;
+  return new CliError(message, classified.exitCode, classified.code, details);
+}
+
+function serverErrorCode(raw: string): string | undefined {
+  try {
+    const body = JSON.parse(raw) as unknown;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return undefined;
+    const value = (body as Record<string, unknown>).error;
+    // A machine code only: short and without spaces, so it is safe in --json.
+    return typeof value === 'string' && /^[a-z0-9_.-]{1,64}$/i.test(value) ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function mcpCall<T = unknown>(
   baseUrl: string,
   token: string,
@@ -220,12 +263,7 @@ export async function mcpCall<T = unknown>(
   }
 
   if (!response.ok) {
-    const classified = classifyHttpStatus(response.status);
-    throw new CliError(
-      `MCP ${method} failed for ${url}: HTTP ${response.status}`,
-      classified.exitCode,
-      classified.code,
-    );
+    throw await httpStatusError(response, method, url);
   }
 
   return parseJsonRpcResponse<T>(await response.text(), params);
