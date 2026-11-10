@@ -306,34 +306,36 @@ Call tools by name. With the CLI: `every tool call <tool> --arg key=value --json
 ## 1. Start of run
 
 1. Call `get_workspace_priorities`. It is the ranked list of what needs attention, the same list the Every app shows.
-2. Read its `pending_approvals` block. For each request:
-   - `approved`: repeat the identical call (same tool, same arguments) once. It runs now.
+2. Read its `pending_approvals` block: `requests`, each with `request_id`, `tool`, `arguments`, `status`, `created_at` and `expires_at`, for your requests of the last 24 hours. For each request:
+   - `approved`: repeat the identical call (the same `tool` with exactly these `arguments`) once. It runs now.
    - `pending`: leave it. Do not call it again with changed arguments, and do not ask for a second approval.
    - `denied`: do not retry. Write a note on the deal if the reason matters.
    - `expired`: repeat the identical call only if it is still right. That makes a new request.
+   - `consumed`: it already ran. Do not repeat it.
 
 ## 2. Attention sweep
 
 Find the deals that need work in one call per filter, with no per-deal poll:
 
-- `list_deals` with `attention` set to `needs_reply`, `step_due`, `draft_ready` or `stale` (add `inactive_days` with `stale`).
+- `list_deals` with `attention` (a list of `needs_reply`, `step_due`, `draft_ready`, `stale`).
+- `inactive_days` keeps only deals with no activity for that many days.
 - `updated_since=<time of the last run>` returns what changed since then.
-- `owner` limits the list to one person's deals. Sort with `order_by=next_step_due_at` or `order_by=last_activity_at`.
+- `owner` limits the list to one person's deals. `sort=last_activity_at` sorts by the last activity (`order_desc` sets the direction).
 - Rows carry `last_activity_at`, `days_in_stage`, `next_step` and `channels`. Page through `has_more` before you treat a list as complete.
 
 ## 3. Read a deal
 
-- `view_deal` with `include=["plan","draft","auto_sends"]` gives every plan step (id, status, due date), the full draft and its `channel`, and scheduled sends.
-- `view_entity_timeline` (`entity_type=deal`, `entity_id`, `after=<cursor from the last run>`) gives what happened since your last read. Keep the newest cursor for the next run.
+- `view_deal` with `include=["plan","draft","auto_sends"]` gives every open plan step (id, kind, title, `do_by` on the first step), the full draft with its `channel` and `draft_version`, and scheduled sends with their ids.
+- `view_entity_timeline` (`entity_type=deal`, `entity_id`, and the `after` and `after_id` pair from the last run's `newest_cursor`) gives what happened since your last read. Keep the new `newest_cursor` for the next run.
 - Read People or Companies (`view_person`, `view_company`) only when the deal needs them.
 
 ## 4. Follow-ups
 
-1. Edit the deal's draft: `deal_outreach` with `action=edit`, `deal_id`, and the changed subject, body, recipient or thread. It returns a `draft_version`.
-2. Request the send: `deal_outreach` with `action=send`, `deal_id` and that `draft_version`. The send goes out on the draft's channel: email, LinkedIn direct message or Instagram direct message. It records on the plan step and on the timeline.
-3. Use `action=schedule` to send at a set time, and `action=cancel` to stop a scheduled or pending send.
-4. If the tool refuses the channel (the owner's social account is not connected, or the channel has no integrated send), it returns the text. Put the text and the recipient in the run report for the owner to send by hand. After the owner confirms that it went out, record it with `log_deal_activity` (`plan_action_outcome=completed` and the step id).
-5. A send with an old `draft_version` fails. Read the draft again with `view_deal` before you edit again. Never edit a draft that has a send waiting for approval: that makes a second request with changed arguments.
+1. Edit the deal's draft: `deal_outreach` with `action=edit`, `deal_id`, and the changed `subject`, `body`, `recipient` or `thread_id`. `recipient` must be an email address of a Person on the deal. `thread_id` is a Gmail thread of the deal, or `new` for a new email. A LinkedIn or Instagram draft has only a `body`. The result gives the new `draft_version`.
+2. Request the send: `deal_outreach` with `action=send`, `deal_id` and that `draft_version`, and nothing else. The send goes out on the draft's channel: email, LinkedIn direct message or Instagram direct message. Only the deal owner can send. It records on the plan step and on the timeline.
+3. Use `action=cancel` with `send_id` (from `view_deal` `auto_sends`) to stop a scheduled or held send. Every has no send at a time that you choose.
+4. If the tool refuses the channel (the owner's social account is not connected, or the channel has no integrated send), it returns the text. Put the text and the recipient in the run report for the owner to send by hand. After the owner confirms that it went out, record it with `log_deal_activity` (`completed_plan_action_id` set to the step id, `plan_action_outcome=completed`).
+5. A send with an old `draft_version` fails. Read the draft again with `view_deal` before you edit again. Never edit a draft that has a send waiting for approval: the waiting send then fails, and the new send is a second request.
 
 ## 5. Plan steps
 
@@ -345,13 +347,13 @@ Close a step with `log_deal_activity`: `deal_id`, a short `note`, the step id fr
 
 ## 7. Deal fields
 
-`update_deal` with `deal_id` and only the fields to change: `name`, `value_estimate`, `owner`, `party`, `members` (add, remove), `goal`. An absent field stays as it is. `set_deal_name` and `set_deal_value_estimate` are deprecated: use `update_deal`.
+`update_deal` with `deal_id` and only the fields to change: `name`, `value_estimate`, `owner`, `party`, `members` (`add`, `remove`), `goal`. An absent field stays as it is. A `members.remove` from a connector waits for the owner's approval. `set_deal_name` and `set_deal_value_estimate` are deprecated: use `update_deal`.
 
 ## 8. Prune and restore
 
 - `archive_records` takes up to 25 records (`kind=deal`, `id`) and one `operation_id`. Archive a deal only when it is clearly dead (for example Lost, or stale and the owner's rule says to archive). Put the archived deals in the run report.
 - `restore_records` takes the same shape and brings deals back.
-- Archive asks for a confirmation phrase, not an approval tap. Use `delete_records` only when the owner asks for it: a delete waits for the owner's approval.
+- A deal archive (`archive_records` with deal records only, or `archive_deal`) asks for a confirmation phrase, not an approval tap. Other kinds, and a restore, wait for the owner's approval. Where the workspace has no confirmation phrases, a deal archive also waits for the owner's approval. A retry with the same `operation_id` returns the first result and archives nothing again. Use `delete_records` only when the owner asks for it: a delete waits for the owner's approval.
 
 ## 9. Prospect triage
 
@@ -373,16 +375,16 @@ When a conversation shows a new opportunity, search first: `list_people` and `li
 ## 12. How approvals work
 
 - Reads run freely. Ordinary writes need a confirmation phrase: the CLI handles it with `--yes`, and over MCP you repeat the identical call with the phrase the tool gave.
-- A send (`deal_outreach` send or schedule), a delete, and a prospect rejection from a connector wait for the owner in the Every web app, Settings > Approvals, for up to 24 hours. The owner can approve or cancel all requests from one run at once.
+- A send (`deal_outreach` send), a delete, a teammate removal and a prospect rejection from a connector wait for the owner in the Every web app, Settings > Approvals, for up to 24 hours. Requests from one connection within 15 minutes show as one group, so the owner can approve or cancel all of them at once.
 - Do not wait inside the run. Finish the run, list what waits, and repeat the identical call on the next run (see Start of run). A changed argument is a new request for the owner.
-- A new inbound message on the thread cancels a waiting deal send. Read the deal again and draft again.
+- If the draft, its To or Cc addresses or its Gmail thread changed, or a reply reached the deal after the send was requested, an approved deal send is refused and nothing is sent. Read the deal again and draft again. The approval card shows every To and Cc address, and says when a recipient's email or profile was added to the Person in the last 7 days.
 - CLI: `deal_outreach` is destructive locally and needs `--yes --allow-destructive`. The owner's routine is the request for those flags; the server approval still applies.
 
 ## 13. Connector or API key
 
 - **Connector** (the owner signed in through OAuth): all of the above. Sends, deletes and rejections wait for approval.
-- **API key** (no person signed in): only the scopes the admin chose. `deals:read` reads deals, prospects and `get_workspace_priorities`. `deals:write` writes deals and approves, merges or rejects prospects with no approval step. `deals:archive` and `deals:delete` remove deals. `outreach:read` reads draft and reply text. `outreach:write` edits and cancels with `deal_outreach`. `scheduled_tasks:read` and `scheduled_tasks:write` list, read, create and cancel scheduled tasks.
-- A key never sends with no person: each send from a key waits in Approvals. A key has no Gmail, Daily Brief or calendar.
+- **API key** (no person signed in): only the scopes the admin chose. `deals:read` reads deals, prospects and `get_workspace_priorities`. `deals:write` writes deals, removes teammates, creates prospecting targets, and approves, merges or rejects prospects with no approval step. `deals:archive` archives deals (deal records only) and `deals:delete` deletes them. `outreach:read` reads draft and reply text, send receipts, and the full Priorities text and titles. No key reads Gmail thread ids or mailbox addresses. `outreach:write` edits, sends and cancels with `deal_outreach`. `scheduled_tasks:read` lists scheduled tasks and, with `outreach:read`, reads their results. `scheduled_tasks:write` creates and cancels them.
+- A key never sends with no person: each send from a key waits in Approvals for the person who made the key, and runs when the identical call is repeated after the approval. A key has no Gmail, Daily Brief or calendar, and no `send_email`.
 - An error that names a missing scope is final. Put it in the run report; do not look for another path.
 
 ## 14. Run report
