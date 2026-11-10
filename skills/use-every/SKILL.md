@@ -306,7 +306,7 @@ Call tools by name. With the CLI: `every tool call <tool> --arg key=value --json
 ## 1. Start of run
 
 1. Call `get_workspace_priorities`. It is the ranked list of what needs attention, the same list the Every app shows.
-2. Read its `pending_approvals` block: `requests`, each with `request_id`, `tool`, `arguments`, `status`, `created_at` and `expires_at`, for your requests of the last 24 hours. For each request:
+2. Read its `pending_approvals` block: `requests`, each with `request_id`, `tool`, `arguments`, `status`, `created_at`, `expires_at`, `connection_name` and `this_connection`, for your requests of the last 24 hours. An approval belongs to the connection that asked, so act only on requests where `this_connection` is true. For each of those:
    - `approved`: repeat the identical call (the same `tool` with exactly these `arguments`) once. It runs now.
    - `pending`: leave it. Do not call it again with changed arguments, and do not ask for a second approval.
    - `denied`: do not retry. Write a note on the deal if the reason matters.
