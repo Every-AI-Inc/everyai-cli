@@ -1304,6 +1304,8 @@ describe('CLI contract', () => {
     ['approve_pending_deal', 'write', 'override'],
     ['approve_prospect', 'write', 'override'],
     ['set_deal_name', 'write', 'override'],
+    ['update_deal', 'write', 'override'],
+    ['deal_outreach', 'destructive', 'override'],
     ['void_invoice', 'destructive', 'override'],
   ])(
     'explains %s policy correctly without cached server metadata',

@@ -151,6 +151,29 @@ function overrideClassification(name: string): Classification | undefined {
     };
   }
 
+  // Agent CRM automation tools (2026-11). update_deal replaces set_deal_name and
+  // set_deal_value_estimate. deal_outreach edits, sends, schedules and cancels
+  // the deal's outbound message. Its name does not match send_ or cancel_, and
+  // one tool has one local tier, so the send action sets the tier for all
+  // actions.
+  if (name === 'update_deal') {
+    return {
+      level: 'write',
+      source: 'override',
+      reason:
+        'update_deal changes the name, value estimate, owner, party, members or goal of a deal; pin write tier regardless of server annotation drift.',
+    };
+  }
+
+  if (name === 'deal_outreach') {
+    return {
+      level: 'destructive',
+      source: 'override',
+      reason:
+        'deal_outreach can send or schedule a message to real recipients on email, LinkedIn or Instagram; sending has external impact, so every action needs destructive confirmation.',
+    };
+  }
+
   if (name === 'link_deal_item') {
     return {
       level: 'write',

@@ -41,7 +41,7 @@ Codex's repo-scoped marketplace location is `.agents/plugins/marketplace.json`.
 The CLI talks to the same Every MCP server (`admin-mcp.every.ai`) and inherits its full tool surface automatically — new tools appear with no CLI upgrade. What the CLI adds:
 
 - **Portability** — one install + one login covers every agent and machine context; remote-MCP config is per-host, per-format, and often impossible in CI.
-- **Safety gates** — reads run freely; writes require `--yes`; destructive actions (sends, deletes, voids, payments) additionally require `--allow-destructive`; `--read-only` (or `EVERY_READ_ONLY=1`) locks everything else out. Classifications are enforced locally — including for tools whose server annotations are too optimistic. When trusted MCP metadata asks for an ordinary-write text confirmation, the CLI forwards the server's exact phrase and retries once.
+- **Safety gates** — reads run freely; writes require `--yes`; destructive actions (sends, deletes, voids, payments) additionally require `--allow-destructive`; `--read-only` (or `EVERY_READ_ONLY=1`) locks everything else out. Classifications are enforced locally — including for tools whose server annotations are too optimistic. `deal_outreach` is destructive for all of its actions because it can send a deal's message; `update_deal` is a write. When trusted MCP metadata asks for an ordinary-write text confirmation, the CLI forwards the server's exact phrase and retries once.
 - **Deterministic output** — a stable `--json` envelope and exit-code taxonomy an agent can parse and branch on.
 
 ## Commands
@@ -118,6 +118,10 @@ When a tool refuses (exit `1`) and the server attached a structured error, `erro
 Server-side human approvals never trigger an automatic destructive retry. If Every shows a pending approval after a destructive call returns or times out, approve it there and then re-run the identical command. The CLI sends one `tools/call` per invocation for a human-approval-gated action, and a still-valid approval can be consumed by that later invocation.
 
 In `--json` mode, a server approval response uses exit `4` and includes a structured `error.mcp_gate` object. After local `--yes` or interactive consent, `type: "text_confirmation"` is retried once automatically; `type: "human_approval"` is returned to the caller without retrying.
+
+## Scheduled agent runs
+
+The bundled `use-every` skill has an **Agent automation** part: the routine for an agent that runs the owner's deals and prospects on a schedule (start-of-run priorities and pending approvals, the attention sweep, follow-ups through `deal_outreach`, plan steps, stage moves, prune and restore, prospect triage). The server returns the same text from `get_started` with `topic=automation`. A send waits for the owner in Every → Settings → Approvals for up to 24 hours; the next run repeats the identical command.
 
 ## Headless / CI
 

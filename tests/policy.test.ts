@@ -27,6 +27,8 @@ function isOverridden(name: string): boolean {
     name === 'approve_prospect' ||
     name === 'create_delivery_deal' ||
     name === 'set_deal_name' ||
+    name === 'update_deal' ||
+    name === 'deal_outreach' ||
     name === 'link_deal_item' ||
     name === 'unlink_deal_item' ||
     name === 'set_recipient_defaults' ||
@@ -211,6 +213,34 @@ describe('policy classification', () => {
       allowed: false,
       denialMessage: expect.stringContaining('--allow-destructive'),
     });
+  });
+
+  it('pins the agent CRM automation tools, with or without annotations', () => {
+    // These tools are not in the production fixture yet. The overrides must hold
+    // before the server ships them, whatever annotations it sends.
+    const writeAnnotations = {
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    };
+    expect(classify({ name: 'update_deal', ...writeAnnotations })).toMatchObject({
+      level: 'write',
+      source: 'override',
+    });
+    expect(classify({ name: 'update_deal' })).toMatchObject({ level: 'write', source: 'override' });
+    expect(classify({ name: 'update_deal', destructive: true })).toMatchObject({ level: 'write' });
+
+    // deal_outreach sends outbound messages, and its name does not match send_.
+    // A read-only or non-destructive hint must not lower it.
+    for (const annotations of [
+      writeAnnotations,
+      { annotations: { readOnlyHint: true } },
+      {},
+    ]) {
+      expect(classify({ name: 'deal_outreach', ...annotations })).toMatchObject({
+        level: 'destructive',
+        source: 'override',
+      });
+    }
+    expect(classify({ name: 'deal_outreach' }).reason).toMatch(/send/);
   });
 
   it('leaves the read-only deal tool alone — no override, annotation decides', () => {
