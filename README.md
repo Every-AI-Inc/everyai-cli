@@ -41,7 +41,7 @@ Codex's repo-scoped marketplace location is `.agents/plugins/marketplace.json`.
 The CLI talks to the same Every MCP server (`admin-mcp.every.ai`) and inherits its full tool surface automatically — new tools appear with no CLI upgrade. What the CLI adds:
 
 - **Portability** — one install + one login covers every agent and machine context; remote-MCP config is per-host, per-format, and often impossible in CI.
-- **Safety gates** — reads run freely; writes require `--yes`; destructive actions (sends, deletes, voids, payments) additionally require `--allow-destructive`; `--read-only` (or `EVERY_READ_ONLY=1`) locks everything else out. Classifications are enforced locally — including for tools whose server annotations are too optimistic. When trusted MCP metadata asks for an ordinary-write text confirmation, the CLI forwards the server's exact phrase and retries once.
+- **Safety gates** — reads run freely; writes require `--yes`; destructive actions (sends, deletes, voids, payments) additionally require `--allow-destructive`; `--read-only` (or `EVERY_READ_ONLY=1`) locks everything else out. Classifications are enforced locally — including for tools whose server annotations are too optimistic. `every tool call deal_outreach` is destructive for all of its actions because it can send a deal's message. The short commands gate by action: `every deal outreach edit` and `cancel` are writes, and `every deal outreach send` is destructive. `update_deal` is a write. When trusted MCP metadata asks for an ordinary-write text confirmation, the CLI forwards the server's exact phrase and retries once.
 - **Deterministic output** — a stable `--json` envelope and exit-code taxonomy an agent can parse and branch on.
 
 ## Commands
@@ -65,14 +65,40 @@ every policy explain <name>    # classification + exactly what running it requir
 # Run any tool
 every tool call <name> [--args file.json|-] [--arg k=v ...] [--yes] [--allow-destructive] [--read-only]
 
-# Curated aliases (same gates, nicer flags)
+# Short commands (same gates, nicer flags; each calls one tool)
 every invoice list [--status <s>] [--search <q>] [--limit <n>]
 every invoice create (--company <name> | --person <name> | --company-id <id> | --person-id <id>) --amount <n>
                                            # write: needs --yes
-every invoice send <invoice_id>            # destructive: needs --yes --allow-destructive
-every deal list [--stage <s>] [--search <q>]
-every deal move <deal_id> <stage>          # write: needs --yes
+every invoice send <invoice_id>            # shows the recipients, then needs --yes
+every proposal send <proposal_id>          # shows the recipients, then needs --yes
+every recipients get|set <party> --kind invoice|proposal
+every company list [--search <q>] [--limit <n>]
+every company view <company_id>
+every company create --name <name> [--email] [--phone] [--website] [--industry] [--address] [--lead-source] [--notes]
+                                           # write: needs --yes
 every person list [--search <q>]           # People
+every person view <person_id>
+every person create --name <name> [--email] [--phone] [--job-title] [--company] [--location] [--headline] [--industry] [--address] [--notes]
+                                           # write: needs --yes
+every deal stages                          # this workspace's stages: label, key, role, criteria
+every deal list [--stage <s>] [--search <q>] [--limit <n>]   # <s>: a stage key or label
+                [--attention needs_reply,step_due,draft_ready,stale] [--stale-days <n>]
+                [--owner <me|email|id> | --mine] [--since <iso time>] [--sort last_activity_at]
+every deal view <deal_id> [--plan] [--draft] [--auto-sends]
+every deal create (--person-id <id> | --company-id <id> | --name <name> [--email <email>])
+                  [--stage <s>] [--deal-name <name>] [--value <n>] [--owner <owner>] [--goal <text>]
+                                           # write: needs --yes
+every deal update <deal_id> [--name <name>] [--value <n>] [--owner <owner>]
+                  [--person-id <id> | --company-id <id>] [--add-member <id> ...] [--remove-member <id> ...]
+                                           # write: needs --yes; a flag you leave out does not change
+every deal move <deal_id> <stage>          # write: needs --yes; stage = key or label
+every deal outreach edit <deal_id> [--subject <text>] [--body <text> | --body-file <path>]
+                         [--recipient <email>] [--thread <id|new>]   # write: needs --yes
+every deal outreach send <deal_id> [--draft-version <v>]
+                                           # destructive: needs --yes --allow-destructive;
+                                           # the owner then approves the send in Every
+every deal outreach cancel <deal_id> --send-id <id>   # write: needs --yes
+every approvals [--all]                    # requests that wait in Every: Settings > Approvals
 
 # Teach your coding agent to use all of this well
 every skills install claude    # → .claude/skills/use-every/
@@ -117,6 +143,10 @@ When a tool refuses (exit `1`) and the server attached a structured error, `erro
 Server-side human approvals never trigger an automatic destructive retry. If Every shows a pending approval after a destructive call returns or times out, approve it there and then re-run the identical command. The CLI sends one `tools/call` per invocation for a human-approval-gated action, and a still-valid approval can be consumed by that later invocation.
 
 In `--json` mode, a server approval response uses exit `4` and includes a structured `error.mcp_gate` object. After local `--yes` or interactive consent, `type: "text_confirmation"` is retried once automatically; `type: "human_approval"` is returned to the caller without retrying.
+
+## Scheduled agent runs
+
+The bundled `use-every` skill has an **Agent automation** part: the routine for an agent that runs the owner's deals and prospects on a schedule (start-of-run priorities and pending approvals, the attention sweep, follow-ups through `deal_outreach`, plan steps, stage moves, prune and restore, prospect triage). The server returns the same text from `get_started` with `topic=automation`. A send waits for the owner in Every → Settings → Approvals for up to 24 hours; the next run repeats the identical command.
 
 ## Headless / CI
 

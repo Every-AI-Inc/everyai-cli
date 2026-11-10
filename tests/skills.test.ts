@@ -154,6 +154,37 @@ describe('use-every skill contract', () => {
     expect(text).toContain('server-enforced read-only');
   });
 
+  it('has a General use part and an Agent automation part for deals and prospects', () => {
+    const text = readFileSync(skillPath, 'utf8');
+    const general = text.indexOf('\n# General use\n');
+    const automation = text.indexOf('\n# Agent automation\n');
+
+    expect(general).toBeGreaterThan(0);
+    expect(automation).toBeGreaterThan(general);
+
+    const part = text.slice(automation);
+    for (const token of [
+      'get_workspace_priorities',
+      'pending_approvals',
+      'updated_since',
+      'draft_version',
+      'plan_action_outcome',
+      'archive_records',
+      'restore_records',
+      'merge_prospect',
+      'kind=note',
+      '24 hours',
+      'Settings > Approvals',
+    ]) {
+      expect(part, `Agent automation mentions ${token}`).toContain(token);
+    }
+    // The playbook must not teach behavior that does not exist.
+    expect(part).not.toMatch(/standing rule|mobile approval|snooze_until/i);
+    // The renamed deal tools are taught as deprecated, never as the way to do it.
+    expect(text).toContain('update_deal');
+    expect(text).not.toMatch(/Rename a deal with `set_deal_name`/);
+  });
+
   it('teaches the agent-run signup flow instead of handing login to the user', () => {
     const text = readFileSync(skillPath, 'utf8');
 

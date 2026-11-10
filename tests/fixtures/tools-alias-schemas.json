@@ -158,6 +158,267 @@
   "title": "List Companies",
   "description": "Search Companies. A Company can exist without People. Results include typed keys, avatars and profile versions; private fields obey your billing role. Page through has_more before treating results as complete.",
   "inputSchema": {
+   "$defs": {
+    "NetworkDateRange": {
+     "additionalProperties": false,
+     "properties": {
+      "from": {
+       "anyOf": [
+        {
+         "format": "date",
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "From"
+      },
+      "to": {
+       "anyOf": [
+        {
+         "format": "date",
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "To"
+      }
+     },
+     "title": "NetworkDateRange",
+     "type": "object"
+    },
+    "NetworkListFilters": {
+     "additionalProperties": false,
+     "properties": {
+      "exclude_onboarding_seeded": {
+       "default": false,
+       "title": "Exclude Onboarding Seeded",
+       "type": "boolean"
+      },
+      "include_archived": {
+       "default": false,
+       "title": "Include Archived",
+       "type": "boolean"
+      },
+      "name": {
+       "anyOf": [
+        {
+         "maxLength": 300,
+         "minLength": 1,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Name"
+      },
+      "email": {
+       "anyOf": [
+        {
+         "maxLength": 300,
+         "minLength": 1,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Email"
+      },
+      "phone": {
+       "anyOf": [
+        {
+         "maxLength": 300,
+         "minLength": 1,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Phone"
+      },
+      "industry": {
+       "anyOf": [
+        {
+         "maxLength": 300,
+         "minLength": 1,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Industry"
+      },
+      "company": {
+       "anyOf": [
+        {
+         "maxLength": 300,
+         "minLength": 1,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Company"
+      },
+      "job_title": {
+       "anyOf": [
+        {
+         "maxLength": 300,
+         "minLength": 1,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Job Title"
+      },
+      "seniority": {
+       "anyOf": [
+        {
+         "maxLength": 300,
+         "minLength": 1,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Seniority"
+      },
+      "keywords": {
+       "items": {
+        "type": "string"
+       },
+       "maxItems": 30,
+       "title": "Keywords",
+       "type": "array"
+      },
+      "locations": {
+       "items": {
+        "type": "string"
+       },
+       "maxItems": 30,
+       "title": "Locations",
+       "type": "array"
+      },
+      "created_at": {
+       "anyOf": [
+        {
+         "$ref": "#/$defs/NetworkDateRange"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null
+      },
+      "source": {
+       "items": {
+        "type": "string"
+       },
+       "maxItems": 50,
+       "title": "Source",
+       "type": "array"
+      },
+      "linkedin_analyzed": {
+       "default": false,
+       "title": "Linkedin Analyzed",
+       "type": "boolean"
+      },
+      "known_by": {
+       "items": {
+        "type": "string"
+       },
+       "maxItems": 200,
+       "title": "Known By",
+       "type": "array"
+      },
+      "ids": {
+       "anyOf": [
+        {
+         "items": {
+          "format": "uuid",
+          "type": "string"
+         },
+         "maxItems": 10000,
+         "type": "array"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Ids"
+      },
+      "exclude_ids": {
+       "anyOf": [
+        {
+         "items": {
+          "format": "uuid",
+          "type": "string"
+         },
+         "maxItems": 10000,
+         "type": "array"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Exclude Ids"
+      }
+     },
+     "title": "NetworkListFilters",
+     "type": "object"
+    },
+    "NetworkListOrder": {
+     "additionalProperties": false,
+     "properties": {
+      "column": {
+       "enum": [
+        "name",
+        "email",
+        "phone",
+        "job_title",
+        "company",
+        "last_enriched_at",
+        "created_at",
+        "relevance"
+       ],
+       "title": "Column",
+       "type": "string"
+      },
+      "ascending": {
+       "default": true,
+       "title": "Ascending",
+       "type": "boolean"
+      }
+     },
+     "required": [
+      "column"
+     ],
+     "title": "NetworkListOrder",
+     "type": "object"
+    }
+   },
    "properties": {
     "query": {
      "default": "",
@@ -171,37 +432,35 @@
     },
     "limit": {
      "default": 20,
-     "title": "Limit",
-     "type": "integer",
+     "maximum": 100,
      "minimum": 1,
-     "maximum": 100
+     "title": "Limit",
+     "type": "integer"
     },
     "offset": {
      "default": 0,
+     "minimum": 0,
      "title": "Offset",
-     "type": "integer",
-     "minimum": 0
+     "type": "integer"
     },
     "filters": {
      "anyOf": [
       {
-       "type": "object"
+       "$ref": "#/$defs/NetworkListFilters"
       },
       {
        "type": "null"
       }
      ],
-     "default": null,
-     "title": "Filters",
-     "description": "Optional NetworkListFilters (name/email/phone/industry/etc)."
+     "default": null
     },
     "order_by": {
      "anyOf": [
       {
-       "type": "array",
        "items": {
-        "type": "object"
-       }
+        "$ref": "#/$defs/NetworkListOrder"
+       },
+       "type": "array"
       },
       {
        "type": "null"
@@ -209,6 +468,12 @@
      ],
      "default": null,
      "title": "Order By"
+    },
+    "exact_terms": {
+     "default": false,
+     "description": "Search the literal words. By default the server expands each term into its other forms.",
+     "title": "Exact Terms",
+     "type": "boolean"
     }
    },
    "title": "list_companiesArguments",
@@ -217,6 +482,7 @@
   "annotations": {
    "readOnlyHint": true,
    "destructiveHint": false,
+   "idempotentHint": true,
    "openWorldHint": false
   }
  },
@@ -547,18 +813,12 @@
  {
   "name": "list_deals",
   "title": "List deals",
-  "description": "List pipeline deals.\n\n    Defaults to live deals only: approved deals assigned to a pipeline stage.\n    Set review_state to pending, dismissed, approved, or all to inspect other\n    review states. Use search for target name or company text.\n    Responses include record ids; response_format='concise' returns trimmed rows (ids kept), 'detailed' adds links and secondary fields.\n    In ChatGPT, renders an interactive pipeline board grouped by stage.\n    ",
+  "description": "Read pipeline deals as text and structured data without a display.\n\n    Defaults to live, non-archived deals: approved deals assigned to a pipeline stage.\n    Set review_state to pending, dismissed, approved, or all to inspect other review states.\n    Use search for target name or company text. Set include_archived=True to include archived deals.\n\n    Preserve record IDs in both formats. response_format='concise' returns trimmed rows. 'detailed' adds links and secondary fields.\n    Use order_by and order_desc for custom sort order. Use limit and offset for pagination.\n\n    Complete all data reads before any display. For one pipeline display, call list_workspace_deals(focus=\"overview\") once.\n    Pass supported stage/search filters to that tool. Use text for filters or sort orders that its bounded lanes cannot represent.\n    \n\nApproved Deal rows include their sales strategy and its target.",
   "inputSchema": {
    "properties": {
     "stage": {
      "anyOf": [
       {
-       "enum": [
-        "lead",
-        "opportunity",
-        "won",
-        "lost"
-       ],
        "type": "string"
       },
       {
@@ -566,7 +826,8 @@
       }
      ],
      "default": null,
-     "title": "Stage"
+     "title": "Stage",
+     "description": "A stage key or label from get_pipeline_settings (e.g. 'lead', 'won', or a custom stage such as 'Discovery booked'); case-insensitive."
     },
     "review_state": {
      "anyOf": [
@@ -635,6 +896,87 @@
      "title": "Response Format",
      "type": "string",
      "description": "'detailed' (default) matches today's full output, including links and secondary fields. 'concise' trims each row to essentials but always keeps '[id: ...]' for follow-up view/write tools."
+    },
+    "include_archived": {
+     "default": false,
+     "title": "Include Archived",
+     "type": "boolean"
+    },
+    "attention": {
+     "anyOf": [
+      {
+       "items": {
+        "enum": [
+         "needs_reply",
+         "step_due",
+         "draft_ready",
+         "stale"
+        ],
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "Only Deals that need work, for any listed reason. These are the reasons Priorities uses: needs_reply (an unanswered reply), step_due (the plan has a next step and no wait), draft_ready (an unsent draft), stale (7 or more days in one stage). Approved Deals only. Each row gets an `attention` list.",
+     "title": "Attention"
+    },
+    "inactive_days": {
+     "anyOf": [
+      {
+       "minimum": 1,
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "Only Deals with no activity for at least this many days (from last_activity_at).",
+     "title": "Inactive Days"
+    },
+    "owner": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "Only Deals owned by this person: 'me', a teammate's email, or a user id.",
+     "title": "Owner"
+    },
+    "updated_since": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "Only Deals changed at or after this ISO-8601 time. Use it to read what changed since the last run.",
+     "title": "Updated Since"
+    },
+    "sort": {
+     "anyOf": [
+      {
+       "const": "last_activity_at",
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "Sort by last_activity_at instead of order_by. order_desc still sets the direction.",
+     "title": "Sort"
     }
    },
    "title": "list_dealsArguments",
@@ -645,11 +987,6 @@
    "destructiveHint": false,
    "idempotentHint": true,
    "openWorldHint": false
-  },
-  "_meta": {
-   "openai/toolInvocation/invoking": "Listing deals...",
-   "openai/toolInvocation/invoked": "Deals listed",
-   "openai/outputTemplate": "ui://widgets/pipeline-board"
   }
  },
  {
@@ -684,12 +1021,7 @@
      "type": "string"
     },
     "stage": {
-     "enum": [
-      "lead",
-      "opportunity",
-      "won",
-      "lost"
-     ],
+     "description": "A stage key or label from get_pipeline_settings (e.g. 'lead', 'won', or a custom stage such as 'Discovery booked'); case-insensitive.",
      "title": "Stage",
      "type": "string"
     }
@@ -824,6 +1156,23 @@
    "openai/toolInvocation/invoking": "Asking your Every assistant...",
    "openai/toolInvocation/invoked": "Assistant answered"
   }
+ },
+ {
+  "name": "get_pipeline_settings",
+  "title": "Get pipeline settings",
+  "description": "Read the org's pipeline (sales stage) settings: the ordered stages (key, label,\nrole), each stage's success criteria and whether the agent is allowed to move a deal\ninto it, plus whether Won automation is enabled overall. Stages are per workspace \u2014\nuse a key or label from here wherever a tool takes a stage. Read-only \u2014 settings are\nchanged in the Every app.",
+  "inputSchema": {
+   "properties": {},
+   "title": "get_pipeline_settingsArguments",
+   "type": "object"
+  },
+  "annotations": {
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": false,
+   "readOnlyHint": true
+  },
+  "_meta": null
  },
  {
   "name": "send_proposal",
@@ -1089,6 +1438,1572 @@
   },
   "annotations": {
    "readOnlyHint": false,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": false
+  }
+ },
+ {
+  "name": "view_company",
+  "title": "View Company",
+  "description": "Read one Company, its methods, associated People, avatar and current versions. Your role controls private fields. Search list_companies first if the ID is unknown.",
+  "inputSchema": {
+   "properties": {
+    "company_id": {
+     "format": "uuid",
+     "title": "Company Id",
+     "type": "string",
+     "description": "Company UUID from list_companies or view_company; never substitute a Person UUID."
+    }
+   },
+   "required": [
+    "company_id"
+   ],
+   "title": "view_companyArguments",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": false
+  }
+ },
+ {
+  "name": "create_company",
+  "title": "Create Company",
+  "description": "Create a real Company with a name and optional email/phone methods or existing People relationships, atomically. A Company needs no Person. Use a new operation_id UUID and reuse it only to retry the exact request. Do not create a Company merely to invoice or propose to a Person.",
+  "inputSchema": {
+   "$defs": {
+    "ActiveCompanyAffiliation": {
+     "additionalProperties": false,
+     "properties": {
+      "action": {
+       "const": "upsert",
+       "default": "upsert",
+       "title": "Action",
+       "type": "string"
+      },
+      "person_id": {
+       "format": "uuid",
+       "title": "Person Id",
+       "type": "string"
+      },
+      "expected_version": {
+       "anyOf": [
+        {
+         "minimum": 1,
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Expected Version"
+      },
+      "kind": {
+       "default": "unspecified",
+       "enum": [
+        "employment",
+        "other",
+        "unspecified"
+       ],
+       "title": "Kind",
+       "type": "string"
+      },
+      "title": {
+       "anyOf": [
+        {
+         "maxLength": 300,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Title"
+      },
+      "status": {
+       "const": "active",
+       "default": "active",
+       "title": "Status",
+       "type": "string"
+      },
+      "started_at": {
+       "anyOf": [
+        {
+         "format": "date",
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Started At"
+      },
+      "ended_at": {
+       "anyOf": [
+        {
+         "format": "date",
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Ended At"
+      }
+     },
+     "required": [
+      "person_id"
+     ],
+     "title": "ActiveCompanyAffiliation",
+     "type": "object"
+    },
+    "McpCreateCompanyProfileCommand": {
+     "additionalProperties": false,
+     "description": "Versioned profile changes. End relationships through end_affiliation.",
+     "properties": {
+      "operation_id": {
+       "description": "New UUID for an intended mutation. Reuse it only when retrying exactly the same command after a transport failure.",
+       "format": "uuid",
+       "title": "Operation Id",
+       "type": "string"
+      },
+      "name": {
+       "anyOf": [
+        {
+         "maxLength": 300,
+         "minLength": 1,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Name"
+      },
+      "address": {
+       "anyOf": [
+        {
+         "maxLength": 3000,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Address"
+      },
+      "website": {
+       "anyOf": [
+        {
+         "maxLength": 2000,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Website"
+      },
+      "notes": {
+       "anyOf": [
+        {
+         "maxLength": 30000,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Notes"
+      },
+      "industry": {
+       "anyOf": [
+        {
+         "maxLength": 300,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Industry"
+      },
+      "lead_source": {
+       "anyOf": [
+        {
+         "maxLength": 1000,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Lead Source"
+      },
+      "archived": {
+       "anyOf": [
+        {
+         "type": "boolean"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Archived"
+      },
+      "methods": {
+       "anyOf": [
+        {
+         "items": {
+          "discriminator": {
+           "mapping": {
+            "archive": "#/$defs/MethodArchive",
+            "upsert": "#/$defs/McpMethodUpsert"
+           },
+           "propertyName": "action"
+          },
+          "oneOf": [
+           {
+            "$ref": "#/$defs/McpMethodUpsert"
+           },
+           {
+            "$ref": "#/$defs/MethodArchive"
+           }
+          ]
+         },
+         "maxItems": 50,
+         "type": "array"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Methods"
+      },
+      "affiliations": {
+       "anyOf": [
+        {
+         "items": {
+          "$ref": "#/$defs/ActiveCompanyAffiliation"
+         },
+         "maxItems": 100,
+         "type": "array"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Affiliations"
+      }
+     },
+     "required": [
+      "operation_id"
+     ],
+     "title": "McpCreateCompanyProfileCommand",
+     "type": "object"
+    },
+    "McpMethodUpsert": {
+     "additionalProperties": false,
+     "properties": {
+      "action": {
+       "const": "upsert",
+       "title": "Action",
+       "type": "string"
+      },
+      "id": {
+       "anyOf": [
+        {
+         "format": "uuid",
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Id"
+      },
+      "expected_version": {
+       "anyOf": [
+        {
+         "minimum": 1,
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Expected Version"
+      },
+      "kind": {
+       "enum": [
+        "email",
+        "phone"
+       ],
+       "title": "Kind",
+       "type": "string"
+      },
+      "display_value": {
+       "maxLength": 320,
+       "minLength": 1,
+       "title": "Display Value",
+       "type": "string"
+      },
+      "is_primary": {
+       "title": "Is Primary",
+       "type": "boolean"
+      },
+      "source": {
+       "anyOf": [
+        {
+         "additionalProperties": true,
+         "type": "object"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Source"
+      }
+     },
+     "required": [
+      "action",
+      "kind",
+      "display_value",
+      "is_primary"
+     ],
+     "title": "McpMethodUpsert",
+     "type": "object"
+    },
+    "MethodArchive": {
+     "additionalProperties": false,
+     "properties": {
+      "action": {
+       "const": "archive",
+       "title": "Action",
+       "type": "string"
+      },
+      "id": {
+       "format": "uuid",
+       "title": "Id",
+       "type": "string"
+      },
+      "expected_version": {
+       "minimum": 1,
+       "title": "Expected Version",
+       "type": "integer"
+      }
+     },
+     "required": [
+      "action",
+      "id",
+      "expected_version"
+     ],
+     "title": "MethodArchive",
+     "type": "object"
+    }
+   },
+   "properties": {
+    "command": {
+     "$ref": "#/$defs/McpCreateCompanyProfileCommand",
+     "description": "Complete creation or versioned profile command. Supply a new operation_id UUID; reuse it only for an exact retry."
+    }
+   },
+   "required": [
+    "command"
+   ],
+   "title": "create_companyArguments",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": false
+  }
+ },
+ {
+  "name": "view_person",
+  "title": "View Person",
+  "description": "Read one Person, their email/phone methods, Companies, avatar and current versions. Use these versions for edits. Search list_people first if the ID is unknown.",
+  "inputSchema": {
+   "properties": {
+    "person_id": {
+     "format": "uuid",
+     "title": "Person Id",
+     "type": "string",
+     "description": "Person UUID from list_people or view_person; never substitute a Company UUID."
+    }
+   },
+   "required": [
+    "person_id"
+   ],
+   "title": "view_personArguments",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": false
+  }
+ },
+ {
+  "name": "create_person",
+  "title": "Create Person",
+  "description": "Create a Person with a name and optional multiple methods or Company relationships, atomically. Search first; shared addresses do not automatically merge people. Supply a new operation_id UUID and reuse it only to retry this exact request. Methods identify their primary status. A Person needs no Company.",
+  "inputSchema": {
+   "$defs": {
+    "ActivePersonAffiliation": {
+     "additionalProperties": false,
+     "properties": {
+      "action": {
+       "const": "upsert",
+       "default": "upsert",
+       "title": "Action",
+       "type": "string"
+      },
+      "company_id": {
+       "format": "uuid",
+       "title": "Company Id",
+       "type": "string"
+      },
+      "expected_version": {
+       "anyOf": [
+        {
+         "minimum": 1,
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Expected Version"
+      },
+      "kind": {
+       "default": "unspecified",
+       "enum": [
+        "employment",
+        "other",
+        "unspecified"
+       ],
+       "title": "Kind",
+       "type": "string"
+      },
+      "title": {
+       "anyOf": [
+        {
+         "maxLength": 300,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Title"
+      },
+      "status": {
+       "const": "active",
+       "default": "active",
+       "title": "Status",
+       "type": "string"
+      },
+      "started_at": {
+       "anyOf": [
+        {
+         "format": "date",
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Started At"
+      },
+      "ended_at": {
+       "anyOf": [
+        {
+         "format": "date",
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Ended At"
+      }
+     },
+     "required": [
+      "company_id"
+     ],
+     "title": "ActivePersonAffiliation",
+     "type": "object"
+    },
+    "LinkRemove": {
+     "additionalProperties": false,
+     "description": "Remove one of this Person's links by its id from view_person.",
+     "properties": {
+      "action": {
+       "const": "remove",
+       "title": "Action",
+       "type": "string"
+      },
+      "id": {
+       "format": "uuid",
+       "title": "Id",
+       "type": "string"
+      }
+     },
+     "required": [
+      "action",
+      "id"
+     ],
+     "title": "LinkRemove",
+     "type": "object"
+    },
+    "LinkUpsert": {
+     "additionalProperties": false,
+     "description": "Add a social or website link to a Person.\n\nThe link is a no-op when the Person already has a link of the same type\nwith the same URL (case-insensitive), which is the merge RPC's dedupe key.",
+     "properties": {
+      "action": {
+       "const": "upsert",
+       "title": "Action",
+       "type": "string"
+      },
+      "link_type": {
+       "enum": [
+        "linkedin",
+        "twitter",
+        "instagram",
+        "facebook",
+        "github",
+        "website",
+        "other"
+       ],
+       "title": "Link Type",
+       "type": "string"
+      },
+      "url": {
+       "maxLength": 2000,
+       "minLength": 1,
+       "title": "Url",
+       "type": "string"
+      },
+      "display_name": {
+       "anyOf": [
+        {
+         "maxLength": 300,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Display Name"
+      }
+     },
+     "required": [
+      "action",
+      "link_type",
+      "url"
+     ],
+     "title": "LinkUpsert",
+     "type": "object"
+    },
+    "McpCreatePersonProfileCommand": {
+     "additionalProperties": false,
+     "description": "Versioned profile changes. End relationships through end_affiliation.",
+     "properties": {
+      "operation_id": {
+       "description": "New UUID for an intended mutation. Reuse it only when retrying exactly the same command after a transport failure.",
+       "format": "uuid",
+       "title": "Operation Id",
+       "type": "string"
+      },
+      "name": {
+       "anyOf": [
+        {
+         "maxLength": 300,
+         "minLength": 1,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Name"
+      },
+      "address": {
+       "anyOf": [
+        {
+         "maxLength": 3000,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Address"
+      },
+      "notes": {
+       "anyOf": [
+        {
+         "maxLength": 30000,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Notes"
+      },
+      "job_title": {
+       "anyOf": [
+        {
+         "maxLength": 300,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Job Title"
+      },
+      "role_description": {
+       "anyOf": [
+        {
+         "maxLength": 3000,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Role Description"
+      },
+      "location": {
+       "anyOf": [
+        {
+         "maxLength": 1000,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Location"
+      },
+      "seniority": {
+       "anyOf": [
+        {
+         "maxLength": 300,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Seniority"
+      },
+      "industry": {
+       "anyOf": [
+        {
+         "maxLength": 300,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Industry"
+      },
+      "headline": {
+       "anyOf": [
+        {
+         "maxLength": 1000,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Headline"
+      },
+      "company": {
+       "anyOf": [
+        {
+         "maxLength": 500,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Company"
+      },
+      "archived": {
+       "anyOf": [
+        {
+         "type": "boolean"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Archived"
+      },
+      "methods": {
+       "anyOf": [
+        {
+         "items": {
+          "discriminator": {
+           "mapping": {
+            "archive": "#/$defs/MethodArchive",
+            "upsert": "#/$defs/McpMethodUpsert"
+           },
+           "propertyName": "action"
+          },
+          "oneOf": [
+           {
+            "$ref": "#/$defs/McpMethodUpsert"
+           },
+           {
+            "$ref": "#/$defs/MethodArchive"
+           }
+          ]
+         },
+         "maxItems": 50,
+         "type": "array"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Methods"
+      },
+      "affiliations": {
+       "anyOf": [
+        {
+         "items": {
+          "$ref": "#/$defs/ActivePersonAffiliation"
+         },
+         "maxItems": 100,
+         "type": "array"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Affiliations"
+      },
+      "links": {
+       "anyOf": [
+        {
+         "items": {
+          "discriminator": {
+           "mapping": {
+            "remove": "#/$defs/LinkRemove",
+            "upsert": "#/$defs/LinkUpsert"
+           },
+           "propertyName": "action"
+          },
+          "oneOf": [
+           {
+            "$ref": "#/$defs/LinkUpsert"
+           },
+           {
+            "$ref": "#/$defs/LinkRemove"
+           }
+          ]
+         },
+         "maxItems": 50,
+         "type": "array"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Links"
+      }
+     },
+     "required": [
+      "operation_id"
+     ],
+     "title": "McpCreatePersonProfileCommand",
+     "type": "object"
+    },
+    "McpMethodUpsert": {
+     "additionalProperties": false,
+     "properties": {
+      "action": {
+       "const": "upsert",
+       "title": "Action",
+       "type": "string"
+      },
+      "id": {
+       "anyOf": [
+        {
+         "format": "uuid",
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Id"
+      },
+      "expected_version": {
+       "anyOf": [
+        {
+         "minimum": 1,
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Expected Version"
+      },
+      "kind": {
+       "enum": [
+        "email",
+        "phone"
+       ],
+       "title": "Kind",
+       "type": "string"
+      },
+      "display_value": {
+       "maxLength": 320,
+       "minLength": 1,
+       "title": "Display Value",
+       "type": "string"
+      },
+      "is_primary": {
+       "title": "Is Primary",
+       "type": "boolean"
+      },
+      "source": {
+       "anyOf": [
+        {
+         "additionalProperties": true,
+         "type": "object"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Source"
+      }
+     },
+     "required": [
+      "action",
+      "kind",
+      "display_value",
+      "is_primary"
+     ],
+     "title": "McpMethodUpsert",
+     "type": "object"
+    },
+    "MethodArchive": {
+     "additionalProperties": false,
+     "properties": {
+      "action": {
+       "const": "archive",
+       "title": "Action",
+       "type": "string"
+      },
+      "id": {
+       "format": "uuid",
+       "title": "Id",
+       "type": "string"
+      },
+      "expected_version": {
+       "minimum": 1,
+       "title": "Expected Version",
+       "type": "integer"
+      }
+     },
+     "required": [
+      "action",
+      "id",
+      "expected_version"
+     ],
+     "title": "MethodArchive",
+     "type": "object"
+    }
+   },
+   "properties": {
+    "command": {
+     "$ref": "#/$defs/McpCreatePersonProfileCommand",
+     "description": "Complete creation or versioned profile command. Supply a new operation_id UUID; reuse it only for an exact retry."
+    },
+    "prospecting_suppressed": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "true: exclude this Person from prospecting and from automatic enrichment (nightly runs, import auto-enrich); manual enrichment still works and existing data is unchanged. false: lift the exclusion. Omit to leave it as is.",
+     "title": "Prospecting Suppressed"
+    }
+   },
+   "required": [
+    "command"
+   ],
+   "title": "create_personArguments",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": false
+  }
+ },
+ {
+  "name": "view_deal",
+  "title": "View deal",
+  "description": "View a single deal with stage, Person or Company, sales strategy and its target, plan snapshot, and recent activity.",
+  "inputSchema": {
+   "properties": {
+    "deal_id": {
+     "title": "Deal Id",
+     "type": "string"
+    },
+    "include": {
+     "anyOf": [
+      {
+       "items": {
+        "enum": [
+         "plan",
+         "draft",
+         "auto_sends"
+        ],
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "Extra blocks: plan (every open step with its id, kind, title and do_by, not cut), draft (the current unsent draft, full text, with its channel and step id), auto_sends (the Deal's scheduled and recent Auto mode sends). API keys get the draft and send status only, never the text.",
+     "title": "Include"
+    }
+   },
+   "required": [
+    "deal_id"
+   ],
+   "title": "view_dealArguments",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": false
+  }
+ },
+ {
+  "name": "create_deal",
+  "title": "Create deal",
+  "description": "Create a manual pipeline deal at Lead or Opportunity.\n\nSet party to an existing Person or Company. Without party, the supplied\nname/email resolves or creates a Person. A Company target needs no Person.\nOptionally choose a content-ready sales_strategy_id from list_sales_strategies; omitting it uses the default sales strategy.",
+  "inputSchema": {
+   "$defs": {
+    "DealGoal": {
+     "additionalProperties": false,
+     "description": "What the Deal sells: the same fields as the Goal editor on the Deal sheet.",
+     "properties": {
+      "summary": {
+       "anyOf": [
+        {
+         "maxLength": 2000,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "description": "What this Deal sells, in one or two sentences.",
+       "title": "Summary"
+      },
+      "service_ids": {
+       "description": "Service IDs from list_services.",
+       "items": {
+        "format": "uuid",
+        "type": "string"
+       },
+       "title": "Service Ids",
+       "type": "array"
+      },
+      "targeting": {
+       "anyOf": [
+        {
+         "maxLength": 2000,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "description": "Who the offer is for.",
+       "title": "Targeting"
+      }
+     },
+     "title": "DealGoal",
+     "type": "object"
+    },
+    "FinancialParty": {
+     "additionalProperties": false,
+     "properties": {
+      "kind": {
+       "enum": [
+        "person",
+        "company"
+       ],
+       "title": "Kind",
+       "type": "string"
+      },
+      "id": {
+       "format": "uuid",
+       "title": "Id",
+       "type": "string"
+      }
+     },
+     "required": [
+      "kind",
+      "id"
+     ],
+     "title": "FinancialParty",
+     "type": "object"
+    }
+   },
+   "properties": {
+    "target_name": {
+     "title": "Target Name",
+     "type": "string"
+    },
+    "party": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/FinancialParty"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "Explicit Person or Company and its UUID. Search the corresponding directory first when unknown."
+    },
+    "target_email": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Target Email"
+    },
+    "target_company_name": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Target Company Name"
+    },
+    "target_role": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Target Role"
+    },
+    "notes": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Notes"
+    },
+    "stage": {
+     "default": "lead",
+     "title": "Stage",
+     "type": "string",
+     "description": "A stage key or label from get_pipeline_settings (default Lead). Won and Lost record a past outcome."
+    },
+    "sales_strategy_id": {
+     "anyOf": [
+      {
+       "format": "uuid",
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Sales Strategy Id"
+    },
+    "name": {
+     "anyOf": [
+      {
+       "maxLength": 120,
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "What the Deal is called (the work, e.g. 'Q3 Brand Refresh'). Omit it for the default name.",
+     "title": "Name"
+    },
+    "value_estimate": {
+     "anyOf": [
+      {
+       "minimum": 0,
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "Expected amount before a proposal or invoice exists, in the workspace currency.",
+     "title": "Value Estimate"
+    },
+    "owner": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "Who owns the Deal: 'me', a teammate's email, or a user id. Omit it to own it yourself.",
+     "title": "Owner"
+    },
+    "goal": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/DealGoal"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "What the Deal sells. Not saved in a workspace that uses sales strategies; the result says so."
+    }
+   },
+   "required": [
+    "target_name"
+   ],
+   "title": "create_dealArguments",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": false,
+   "idempotentHint": false,
+   "openWorldHint": false
+  }
+ },
+ {
+  "name": "update_deal",
+  "title": "Update deal",
+  "description": "Change one or more fields of a Deal in one call. A field you leave out does not change.\n\nUse the same field names as create_deal. Stage changes go through\nmove_deal_stage, sales strategy through set_deal_sales_strategy. The fields\napply in order (name, value_estimate, party, owner, members, goal). If one is\nrefused, the result names the fields already saved. Find the Deal with\nlist_deals. This replaces set_deal_name and set_deal_value_estimate.",
+  "inputSchema": {
+   "$defs": {
+    "DealGoal": {
+     "additionalProperties": false,
+     "description": "What the Deal sells: the same fields as the Goal editor on the Deal sheet.",
+     "properties": {
+      "summary": {
+       "anyOf": [
+        {
+         "maxLength": 2000,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "description": "What this Deal sells, in one or two sentences.",
+       "title": "Summary"
+      },
+      "service_ids": {
+       "description": "Service IDs from list_services.",
+       "items": {
+        "format": "uuid",
+        "type": "string"
+       },
+       "title": "Service Ids",
+       "type": "array"
+      },
+      "targeting": {
+       "anyOf": [
+        {
+         "maxLength": 2000,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "description": "Who the offer is for.",
+       "title": "Targeting"
+      }
+     },
+     "title": "DealGoal",
+     "type": "object"
+    },
+    "DealMembersChange": {
+     "additionalProperties": false,
+     "description": "Teammates to staff on or take off the Deal.",
+     "properties": {
+      "add": {
+       "description": "Teammates to add, each a user id or a workspace member's email. Grants start off.",
+       "items": {
+        "type": "string"
+       },
+       "maxItems": 20,
+       "title": "Add",
+       "type": "array"
+      },
+      "remove": {
+       "description": "Teammates to take off, each a user id or a workspace member's email. Their logged time, expenses and invoices stay. A removal waits for your approval in Every.",
+       "items": {
+        "type": "string"
+       },
+       "maxItems": 20,
+       "title": "Remove",
+       "type": "array"
+      }
+     },
+     "title": "DealMembersChange",
+     "type": "object"
+    },
+    "FinancialParty": {
+     "additionalProperties": false,
+     "properties": {
+      "kind": {
+       "enum": [
+        "person",
+        "company"
+       ],
+       "title": "Kind",
+       "type": "string"
+      },
+      "id": {
+       "format": "uuid",
+       "title": "Id",
+       "type": "string"
+      }
+     },
+     "required": [
+      "kind",
+      "id"
+     ],
+     "title": "FinancialParty",
+     "type": "object"
+    }
+   },
+   "properties": {
+    "deal_id": {
+     "title": "Deal Id",
+     "type": "string"
+    },
+    "name": {
+     "anyOf": [
+      {
+       "maxLength": 120,
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "What the Deal is called (the work, e.g. 'Q3 Brand Refresh'), not who it is with. An empty string resets it to the default name.",
+     "title": "Name"
+    },
+    "value_estimate": {
+     "anyOf": [
+      {
+       "minimum": 0,
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "Expected amount before a proposal or invoice exists. 0 clears it. Refused once a proposal or invoice is linked, because its total is then the value.",
+     "title": "Value Estimate"
+    },
+    "owner": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "New owner: 'me', a teammate's email, or a user id. Only the current owner or an admin can reassign. The plan is refreshed for the new owner.",
+     "title": "Owner"
+    },
+    "party": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/FinancialParty"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "The Person or Company the Deal is with, from list_people or list_companies. It replaces that side only: a Person set on a Company Deal keeps the Company."
+    },
+    "members": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/DealMembersChange"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "Teammates to staff on or take off the Deal. Only for an approved Deal linked to a Company."
+    },
+    "goal": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/DealGoal"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "Replace what the Deal sells. Refused in a workspace that uses sales strategies (use set_deal_sales_strategy)."
+    }
+   },
+   "required": [
+    "deal_id"
+   ],
+   "title": "update_dealArguments",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": false
+  }
+ },
+ {
+  "name": "deal_outreach",
+  "title": "Deal outreach",
+  "description": "Edit, send or cancel the message that a Deal owes, on the Deal's own draft.\n\nRead the draft and its draft_version and channel with\nview_deal(include=[\"draft\"]). edit returns the new draft_version. send takes\nthat draft_version and sends the current draft on its channel (email, or a\nLinkedIn or Instagram direct message through the owner's connected\naccount). The send records on the plan step and the timeline, as a send\nfrom the Deal does. It goes only to the recipient already on the draft, and\nit waits for your approval in Every first. If the channel has no integrated\nsend or the account is not connected, the result returns the text to send\nby hand. Use send_email only for mail that has no Deal.",
+  "inputSchema": {
+   "properties": {
+    "deal_id": {
+     "title": "Deal Id",
+     "type": "string"
+    },
+    "action": {
+     "description": "edit changes the current draft. send sends it after your approval in Every. cancel stops a scheduled or held send.",
+     "enum": [
+      "edit",
+      "send",
+      "cancel"
+     ],
+     "title": "Action",
+     "type": "string"
+    },
+    "draft_version": {
+     "anyOf": [
+      {
+       "maxLength": 100,
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "The draft_version from view_deal(include=[\"draft\"]) or from the last edit. Required for send: the send is bound to that exact draft and recipient, and a changed draft is refused. Optional for edit: when given, an edit of a changed draft is refused.",
+     "title": "Draft Version"
+    },
+    "subject": {
+     "anyOf": [
+      {
+       "maxLength": 500,
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "edit only: the new email subject.",
+     "title": "Subject"
+    },
+    "body": {
+     "anyOf": [
+      {
+       "maxLength": 20000,
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "edit only: the new message text.",
+     "title": "Body"
+    },
+    "recipient": {
+     "anyOf": [
+      {
+       "maxLength": 320,
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "edit only: the new email recipient. It must be an email address of a Person on this Deal.",
+     "title": "Recipient"
+    },
+    "thread_id": {
+     "anyOf": [
+      {
+       "maxLength": 200,
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "edit only: a Gmail thread of this Deal to reply in, or \"new\" to start a new email.",
+     "title": "Thread Id"
+    },
+    "send_id": {
+     "anyOf": [
+      {
+       "maxLength": 64,
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "cancel only: the id of the scheduled send, from view_deal(include=[\"auto_sends\"]).",
+     "title": "Send Id"
+    }
+   },
+   "required": [
+    "deal_id",
+    "action"
+   ],
+   "title": "deal_outreachArguments",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": true,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "get_workspace_priorities",
+  "title": "Read your priorities",
+  "description": "Read your current ranked Priorities with scoped context for an Ask Every conversation. Never refreshes, marks seen, completes items or executes their actions.",
+  "inputSchema": {
+   "properties": {},
+   "title": "get_workspace_prioritiesArguments",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": true,
    "destructiveHint": false,
    "idempotentHint": true,
    "openWorldHint": false

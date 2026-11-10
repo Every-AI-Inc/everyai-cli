@@ -19,6 +19,9 @@ export const STAGING_BASE_URL = 'https://admin-mcp-staging.up.railway.app';
 /** Where an org admin mints, inspects and revokes org API keys. */
 export const PROD_API_KEYS_URL = 'https://app.every.ai/settings/api-keys';
 export const STAGING_API_KEYS_URL = 'https://app.staging.every.ai/settings/api-keys';
+/** Where a person approves or cancels the requests that wait for approval. */
+export const PROD_APPROVALS_URL = 'https://app.every.ai/settings/approvals';
+export const STAGING_APPROVALS_URL = 'https://app.staging.every.ai/settings/approvals';
 export type EnvironmentName = 'production' | 'staging' | 'custom';
 
 export interface ResolveBaseUrlOptions {
@@ -62,4 +65,11 @@ export function apiKeysUrlForBaseUrl(baseUrl: string): string {
   return environmentNameForBaseUrl(baseUrl) === 'staging'
     ? STAGING_API_KEYS_URL
     : PROD_API_KEYS_URL;
+}
+
+/** The web-app page where a person approves the requests that a given MCP base URL holds. */
+export function approvalsUrlForBaseUrl(baseUrl: string): string {
+  return environmentNameForBaseUrl(baseUrl) === 'staging'
+    ? STAGING_APPROVALS_URL
+    : PROD_APPROVALS_URL;
 }

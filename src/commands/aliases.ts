@@ -1,11 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { CliError } from '../lib/errors.js';
 import { ExitCode } from '../lib/exit-codes.js';
+import { emit } from '../lib/output.js';
 import { documentKind, DocumentKind, preservedExclusions, record, recipientBinding, RecipientBinding, recipientLines } from '../lib/recipients.js';
+import { renderTable, shortTime, TableColumn } from '../lib/table.js';
 import {
   executeToolCall,
   invokeToolCall,
   ToolCallData,
+  toolCallHuman,
   ToolExecutionOptions,
 } from './tools.js';
 
@@ -18,8 +21,15 @@ interface InvoiceListOptions extends ListOptions {
   status?: string;
 }
 
-interface DealListOptions extends ListOptions {
+export interface DealListOptions extends ListOptions {
   stage?: string;
+  /** Attention reasons, each a value or a comma list. */
+  attention?: string[];
+  staleDays?: string;
+  owner?: string;
+  mine?: boolean;
+  since?: string;
+  sort?: string;
 }
 
 interface PersonListOptions extends ListOptions {}
@@ -53,7 +63,6 @@ interface DealMoveOptions extends ToolExecutionOptions {}
 
 const INVOICE_STATUSES = new Set(['draft', 'issued', 'void']);
 const PAYMENT_STATUSES = new Set(['unpaid', 'paid', 'overdue', 'partial']);
-const DEAL_STAGES = new Set(['lead', 'opportunity', 'won', 'lost']);
 // list_companies/list_people (the live People/Companies search tools) take a
 // free-text `query` param — the retired list_clients/list_contacts tools took `name`.
 const NETWORK_SEARCH_QUERY_PARAM = 'query';
@@ -95,17 +104,7 @@ function parseLimit(value: string | undefined): number | undefined {
   return limit;
 }
 
-function assertDealStage(stage: string): void {
-  if (!DEAL_STAGES.has(stage)) {
-    throw new CliError(
-      `stage must be one of: ${Array.from(DEAL_STAGES).join(', ')}`,
-      ExitCode.USAGE,
-      'usage',
-    );
-  }
-}
-
-function addLimit(args: Record<string, unknown>, value: string | undefined): void {
+export function addLimit(args: Record<string, unknown>, value: string | undefined): void {
   const limit = parseLimit(value);
   if (limit !== undefined) args.limit = limit;
 }
@@ -145,7 +144,7 @@ function parsePositiveNumber(value: string | undefined, flag: string): number {
   return parsed;
 }
 
-function nonEmpty(value: string | undefined): string | undefined {
+export function nonEmpty(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
 }
@@ -573,14 +572,126 @@ export async function invoiceCreateCommand(opts: InvoiceCreateOptions = {}): Pro
 
 export async function dealListCommand(opts: DealListOptions = {}): Promise<void> {
   const args: Record<string, unknown> = {};
-  if (opts.stage !== undefined) {
-    assertDealStage(opts.stage);
-    args.stage = opts.stage;
-  }
+  // Stages are per-workspace (a key or a label, e.g. "lead" or "Discovery
+  // booked"); the server resolves them and answers stage_not_found with the
+  // workspace's live list, so there is no client-side stage check.
+  if (opts.stage !== undefined) args.stage = opts.stage;
   if (opts.search !== undefined) args.search = opts.search;
   addLimit(args, opts.limit);
+  // The attention-sweep filters (list_deals, 2026-11). A call without them
+  // sends the same arguments and prints the same output as before.
+  const sweep = dealSweepArgs(opts);
+  Object.assign(args, sweep);
+  const human = Object.keys(sweep).length > 0 ? dealTableHuman : undefined;
 
-  await executeToolCall('list_deals', opts, async () => args);
+  await withStageErrors(opts.stage, () =>
+    executeToolCall('list_deals', opts, async () => args, undefined, undefined, human));
+}
+
+export const ATTENTION_REASONS = ['needs_reply', 'step_due', 'draft_ready', 'stale'] as const;
+const DEAL_SORTS = new Set(['last_activity_at']);
+
+function parseAttention(values: string[] | undefined): string[] | undefined {
+  if (values === undefined) return undefined;
+  const reasons = Array.from(new Set(values
+    .flatMap((value) => value.split(','))
+    .map((value) => value.trim())
+    .filter(Boolean)));
+  const unknown = reasons.filter((reason) => !(ATTENTION_REASONS as readonly string[]).includes(reason));
+  if (reasons.length === 0 || unknown.length > 0) {
+    throw new CliError(`--attention must be one or more of: ${ATTENTION_REASONS.join(', ')}`, ExitCode.USAGE, 'usage');
+  }
+  return reasons;
+}
+
+function dealSweepArgs(opts: DealListOptions): Record<string, unknown> {
+  const args: Record<string, unknown> = {};
+  const attention = parseAttention(opts.attention);
+  if (attention) args.attention = attention;
+
+  if (opts.staleDays !== undefined) {
+    const days = Number(opts.staleDays);
+    if (!Number.isInteger(days) || days < 1) {
+      throw new CliError('--stale-days must be a whole number of days, 1 or more', ExitCode.USAGE, 'usage');
+    }
+    args.inactive_days = days;
+  }
+
+  const owner = nonEmpty(opts.owner);
+  if (opts.owner !== undefined && !owner) {
+    throw new CliError('--owner must be me, an email, or a user id', ExitCode.USAGE, 'usage');
+  }
+  if (opts.mine && owner && owner !== 'me') {
+    throw new CliError('Use --mine or --owner, not both', ExitCode.USAGE, 'usage');
+  }
+  if (opts.mine) args.owner = 'me';
+  else if (owner) args.owner = owner;
+
+  if (opts.since !== undefined) {
+    const since = opts.since.trim();
+    if (!since || Number.isNaN(Date.parse(since))) {
+      throw new CliError('--since must be an ISO 8601 time, for example 2026-11-01T00:00:00Z', ExitCode.USAGE, 'usage');
+    }
+    args.updated_since = since;
+  }
+
+  if (opts.sort !== undefined) {
+    if (!DEAL_SORTS.has(opts.sort)) {
+      throw new CliError(`--sort must be: ${Array.from(DEAL_SORTS).join(', ')}`, ExitCode.USAGE, 'usage');
+    }
+    args.sort = opts.sort;
+  }
+  return args;
+}
+
+function dealName(deal: Record<string, unknown>): string {
+  return stringField(deal, ['display_name', 'name', 'label', 'contact', 'company']) ?? '';
+}
+
+function nextStepText(value: unknown): string {
+  const step = record(value);
+  const title = typeof step.title === 'string' ? step.title : '';
+  if (!title) return '';
+  return typeof step.do_by === 'string' && step.do_by ? `${title} (${step.do_by})` : title;
+}
+
+/** The deal table for the attention-sweep filters. It shows only what the server returned. */
+export function dealTableHuman(data: ToolCallData): string {
+  const structured = record(data.structured_content);
+  if (!Array.isArray(structured.deals)) return toolCallHuman(data);
+  const deals = structured.deals.map(record);
+  if (deals.length === 0) return 'No deals match these filters.';
+
+  const columns: TableColumn[] = [
+    { header: 'id', max: 36 },
+    { header: 'deal', max: 32 },
+    { header: 'stage', max: 20 },
+  ];
+  const cells: Array<(deal: Record<string, unknown>) => string> = [
+    (deal) => String(deal.id ?? ''),
+    dealName,
+    (deal) => stringField(deal, ['stage_label', 'stage']) ?? '',
+  ];
+  if (deals.some((deal) => typeof deal.last_activity_at === 'string')) {
+    columns.push({ header: 'last activity', max: 16 });
+    cells.push((deal) => shortTime(deal.last_activity_at));
+  }
+  if (deals.some((deal) => nextStepText(deal.next_step))) {
+    columns.push({ header: 'next step', max: 48 });
+    cells.push((deal) => nextStepText(deal.next_step));
+  }
+  if (deals.some((deal) => Array.isArray(deal.attention) && deal.attention.length > 0)) {
+    columns.push({ header: 'attention' });
+    cells.push((deal) => (Array.isArray(deal.attention) ? deal.attention.join(', ') : ''));
+  }
+
+  const lines = [renderTable(columns, deals.map((deal) => cells.map((render) => render(deal))))];
+  const page = record(structured.pagination);
+  if (page.has_more === true) {
+    const total = typeof page.total_matched === 'number' ? ` of ${page.total_matched}` : '';
+    lines.push('', `Showing ${deals.length}${total} deals. Raise --limit to see more.`);
+  }
+  return lines.join('\n');
 }
 
 export async function dealMoveCommand(
@@ -588,8 +699,132 @@ export async function dealMoveCommand(
   stage: string,
   opts: DealMoveOptions = {},
 ): Promise<void> {
-  assertDealStage(stage);
-  await executeToolCall('move_deal_stage', opts, async () => ({ deal_id: dealId, stage }));
+  await withStageErrors(stage, () =>
+    executeToolCall('move_deal_stage', opts, async () => ({ deal_id: dealId, stage })),
+  );
+}
+
+export interface PipelineStage {
+  key: string;
+  label: string;
+  role: string;
+  criteria: string;
+  agent_can_move_to_stage?: boolean;
+}
+
+function stageName(stage: Record<string, unknown>): string | undefined {
+  for (const field of ['label', 'key']) {
+    const value = stage[field];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+/** `Unknown stage "<input>". Available stages: Lead, Discovery booked, ...` */
+export function unknownStageMessage(input: string, available: unknown): string {
+  const names = Array.isArray(available)
+    ? available
+        .map((entry) =>
+          entry && typeof entry === 'object' ? stageName(entry as Record<string, unknown>) : undefined,
+        )
+        .filter((name): name is string => name !== undefined)
+    : [];
+  const list = names.length ? names.join(', ') : 'run `every deal stages` to list them';
+  return `Unknown stage "${input}". Available stages: ${list}`;
+}
+
+// The server's stage_not_found refusal carries the workspace's live stage list
+// (structuredContent.error.available_stages). Re-render it as one readable
+// sentence; the error code, exit status and tool_error details are unchanged.
+async function withStageErrors(input: string | undefined, run: () => Promise<void>): Promise<void> {
+  try {
+    await run();
+  } catch (err) {
+    if (err instanceof CliError && err.code === 'stage_not_found') {
+      const toolError = (err.details?.tool_error ?? {}) as Record<string, unknown>;
+      const stage = typeof toolError.stage === 'string' ? toolError.stage : input ?? '';
+      throw new CliError(
+        unknownStageMessage(stage, toolError.available_stages),
+        err.exitCode,
+        err.code,
+        err.details,
+      );
+    }
+    throw err;
+  }
+}
+
+function oneLine(value: unknown, max = 80): string {
+  const text = typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
+  return text.length > max ? `${text.slice(0, max - 3)}...` : text;
+}
+
+/** The ordered stage list from get_pipeline_settings' structured result. */
+export function parsePipelineStages(structured: unknown): PipelineStage[] {
+  if (!structured || typeof structured !== 'object') return [];
+  const record = structured as Record<string, unknown>;
+  const body = (
+    record.result && typeof record.result === 'object' ? record.result : record
+  ) as Record<string, unknown>;
+  let entries: unknown = body.stages;
+  // A server that predates customizable stages returns a map keyed by the
+  // four default stage names instead of the ordered list.
+  if (entries && typeof entries === 'object' && !Array.isArray(entries)) {
+    entries = Object.entries(entries as Record<string, unknown>).map(([key, value]) => ({
+      ...(value && typeof value === 'object' ? (value as Record<string, unknown>) : {}),
+      key,
+      label: key.charAt(0).toUpperCase() + key.slice(1),
+      role: LEGACY_STAGE_ROLES[key] ?? 'middle',
+    }));
+  }
+  if (!Array.isArray(entries)) return [];
+  return entries
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object')
+    .map((entry) => ({
+      key: String(entry.key ?? entry.name ?? ''),
+      label: String(entry.label ?? entry.display_name ?? entry.key ?? ''),
+      role: String(entry.role ?? ''),
+      criteria: typeof entry.criteria === 'string' ? entry.criteria : '',
+      ...(typeof entry.agent_can_move_to_stage === 'boolean'
+        ? { agent_can_move_to_stage: entry.agent_can_move_to_stage }
+        : {}),
+    }))
+    .filter((stage) => stage.key);
+}
+
+const LEGACY_STAGE_ROLES: Record<string, string> = {
+  lead: 'lead',
+  opportunity: 'middle',
+  won: 'won',
+  lost: 'lost',
+};
+
+export function stagesHuman(stages: PipelineStage[]): string {
+  if (!stages.length) {
+    return 'No pipeline stages returned. Run: every tool call get_pipeline_settings --json';
+  }
+  // Labels can be up to 40 characters (the server limit), so the column fits them all.
+  const labelWidth = Math.min(40, Math.max('label'.length, ...stages.map((s) => s.label.length)));
+  const keyWidth = Math.min(20, Math.max('key'.length, ...stages.map((s) => s.key.length)));
+  const roleWidth = Math.max('role'.length, ...stages.map((s) => s.role.length));
+  const lines = [
+    `${'label'.padEnd(labelWidth)}  ${'key'.padEnd(keyWidth)}  ${'role'.padEnd(roleWidth)}  criteria`,
+    `${'-'.repeat(labelWidth)}  ${'-'.repeat(keyWidth)}  ${'-'.repeat(roleWidth)}  ${'-'.repeat(8)}`,
+  ];
+  for (const stage of stages) {
+    lines.push(
+      `${stage.label.padEnd(labelWidth)}  ${stage.key.padEnd(keyWidth)}  ${stage.role.padEnd(roleWidth)}  ${oneLine(stage.criteria)}`,
+    );
+  }
+  lines.push('', 'Pass a key or a label to: every deal move <deal_id> <stage> | every deal list --stage <stage>');
+  return lines.join('\n');
+}
+
+export async function dealStagesCommand(opts: ToolExecutionOptions = {}): Promise<void> {
+  const data = await invokeToolCall('get_pipeline_settings', opts);
+  const stages = parsePipelineStages(data.structured_content);
+  if (opts.json) emit({ ...data, stages }, { json: true, staging: opts.staging });
+  else process.stdout.write(`${stagesHuman(stages)}\n`);
 }
 
 export async function personListCommand(opts: PersonListOptions = {}): Promise<void> {

@@ -8,6 +8,7 @@ import { recipientBinding, recipientLines } from '../lib/recipients.js';
 import {
   Classification,
   classify,
+  PolicyLevel,
   promptForTool,
   requirementDescription,
   requirementFor,
@@ -66,6 +67,12 @@ export interface InvokeHooks {
   beforeConfirmation?: () => Promise<void>;
   /** Document aliases show recipients and use a yes/no prompt. */
   recipientConfirmation?: boolean;
+  /**
+   * The local tier for this call. A short command that knows its action up
+   * front sets it (for example `deal outreach edit` is a write). It replaces
+   * only the tier of the tool classification.
+   */
+  level?: PolicyLevel;
 }
 
 /**
@@ -318,7 +325,7 @@ function contentAsText(content: unknown): string {
   return typeof content === 'string' ? content : JSON.stringify(content, null, 2);
 }
 
-function toolCallHuman(result: {
+export function toolCallHuman(result: {
   content: unknown;
   structured_content?: unknown;
 }): string {
@@ -373,7 +380,7 @@ export async function invokeToolCall(
   const token = await getToken({ baseUrl });
   const tools = await listTools(baseUrl, token, { noCache: opts.noCache });
   const tool = findTool(tools, name, hooks);
-  const classification = classify(tool);
+  const classification = hooks.level ? { ...classify(tool), level: hooks.level } : classify(tool);
   const interactive = Boolean(process.stdin.isTTY && process.stderr.isTTY);
   const readOnlyMode = opts.readOnly === true || process.env.EVERY_READ_ONLY === '1';
   const requirement = requirementFor(classification.level, {
