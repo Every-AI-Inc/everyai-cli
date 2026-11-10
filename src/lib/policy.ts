@@ -216,6 +216,20 @@ function overrideClassification(name: string): Classification | undefined {
   return undefined;
 }
 
+/**
+ * How the short commands gate a tool that has more than one action. The tool
+ * keeps one tier for `every tool call`, because that path cannot know the
+ * action before the call. A short command knows its action, so it gates by
+ * action.
+ */
+export function shortCommandNote(name: string): string | undefined {
+  if (name === 'deal_outreach') {
+    return 'The short commands gate by action: `every deal outreach edit` and `every deal outreach cancel` are writes (--yes). ' +
+      '`every deal outreach send` is destructive (--yes --allow-destructive). `every tool call deal_outreach` stays destructive for every action.';
+  }
+  return undefined;
+}
+
 export function classify(tool: PolicyTool): Classification {
   const overridden = overrideClassification(tool.name);
   if (overridden) return overridden;

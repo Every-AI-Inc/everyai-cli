@@ -21,7 +21,22 @@ import {
   toolCallCommand,
   toolsDescribeCommand,
   toolsListCommand,
+  ToolExecutionOptions,
 } from './commands/tools.js';
+import {
+  approvalsCommand,
+  companyCreateCommand,
+  companyListCommand,
+  companyViewCommand,
+  dealCreateCommand,
+  dealUpdateCommand,
+  dealViewCommand,
+  outreachCancelCommand,
+  outreachEditCommand,
+  outreachSendCommand,
+  personCreateCommand,
+  personViewCommand,
+} from './commands/crm.js';
 import {
   dealListCommand,
   dealMoveCommand,
@@ -266,6 +281,20 @@ function withToolExecutionOptions(cmd: Command): Command {
     .option('--timeout <secs>', 'tool call timeout in seconds');
 }
 
+/** The tool execution options of a parsed command, for the short commands. */
+function executionOptions(opts: Record<string, unknown>): ToolExecutionOptions {
+  return {
+    json: opts.json as boolean | undefined,
+    staging: opts.staging as boolean | undefined,
+    // Commander represents --no-cache as cache:false.
+    noCache: opts.cache === false,
+    yes: opts.yes as boolean | undefined,
+    allowDestructive: opts.allowDestructive as boolean | undefined,
+    readOnly: opts.readOnly as boolean | undefined,
+    timeout: opts.timeout as string | undefined,
+  };
+}
+
 const TOOL_CALL_HELP = [
   '',
   'Fastest full-tool argument forms:',
@@ -467,7 +496,17 @@ withGlobalOptions(
       .description('List deals')
       .option('--stage <s>', 'deal stage filter: a key or label from `every deal stages`')
       .option('--search <q>', 'deal search query')
-      .option('--limit <n>', 'maximum number of deals to return'),
+      .option('--limit <n>', 'maximum number of deals to return')
+      .option(
+        '--attention <reason>',
+        'only deals that need work: needs_reply, step_due, draft_ready, stale; repeat or use a comma list',
+        collectOption,
+      )
+      .option('--stale-days <n>', 'only deals with no activity for at least this many days')
+      .option('--owner <owner>', 'only deals owned by: me, a teammate\'s email, or a user id')
+      .option('--mine', 'only your deals (same as --owner me)')
+      .option('--since <time>', 'only deals changed at or after this ISO 8601 time')
+      .option('--sort <field>', 'sort order: last_activity_at'),
   ),
 ).action(async (_options: unknown, command: Command) => {
   const opts = command.optsWithGlobals();
@@ -482,7 +521,147 @@ withGlobalOptions(
     stage: opts.stage,
     search: opts.search,
     limit: opts.limit,
+    attention: opts.attention,
+    staleDays: opts.staleDays,
+    owner: opts.owner,
+    mine: opts.mine,
+    since: opts.since,
+    sort: opts.sort,
   });
+});
+
+withGlobalOptions(
+  withToolExecutionOptions(
+    dealCommand
+      .command('view')
+      .description('Show one deal')
+      .argument('<deal_id>', 'deal id')
+      .option('--plan', 'add every open plan step')
+      .option('--draft', 'add the unsent draft and its draft version')
+      .option('--auto-sends', 'add scheduled and recent sends'),
+  ),
+).action(async (dealId: string, _options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await dealViewCommand(dealId, { ...executionOptions(opts), plan: opts.plan, draft: opts.draft, autoSends: opts.autoSends });
+});
+
+withGlobalOptions(
+  withToolExecutionOptions(
+    dealCommand
+      .command('create')
+      .description('Create a deal with an existing Person or Company, or with a new Person')
+      .option('--person-id <id>', 'existing Person id')
+      .option('--company-id <id>', 'existing Company id')
+      .option('--name <name>', 'name of a new Person (when no id is given)')
+      .option('--email <email>', 'email of a new Person')
+      .option('--stage <s>', 'stage key or label (default: Lead)')
+      .option('--deal-name <name>', 'what the deal is called, for example "Q3 brand refresh"')
+      .option('--value <amount>', 'expected value in the workspace currency')
+      .option('--owner <owner>', 'deal owner: me, a teammate\'s email, or a user id')
+      .option('--goal <text>', 'what the deal sells, in one or two sentences'),
+  ),
+).action(async (_options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await dealCreateCommand({
+    ...executionOptions(opts),
+    personId: opts.personId,
+    companyId: opts.companyId,
+    name: opts.name,
+    email: opts.email,
+    stage: opts.stage,
+    dealName: opts.dealName,
+    value: opts.value,
+    owner: opts.owner,
+    goal: opts.goal,
+  });
+});
+
+withGlobalOptions(
+  withToolExecutionOptions(
+    dealCommand
+      .command('update')
+      .description('Change deal fields; a flag you leave out does not change')
+      .argument('<deal_id>', 'deal id')
+      .option('--name <name>', 'what the deal is called; "" resets the default name')
+      .option('--value <amount>', 'expected value; 0 clears it')
+      .option('--owner <owner>', 'new owner: me, a teammate\'s email, or a user id')
+      .option('--goal <text>', 'replace what the deal sells')
+      .option('--person-id <id>', 'set the deal\'s Person')
+      .option('--company-id <id>', 'set the deal\'s Company')
+      .option('--add-member <id>', 'add a teammate (user id or email); repeatable', collectOption)
+      .option('--remove-member <id>', 'remove a teammate (user id or email); waits for approval in Every; repeatable', collectOption),
+  ),
+).action(async (dealId: string, _options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await dealUpdateCommand(dealId, {
+    ...executionOptions(opts),
+    name: opts.name,
+    value: opts.value,
+    owner: opts.owner,
+    goal: opts.goal,
+    personId: opts.personId,
+    companyId: opts.companyId,
+    addMember: opts.addMember,
+    removeMember: opts.removeMember,
+  });
+});
+
+const outreachCommand = withToolExecutionOptions(
+  withGlobalOptions(
+    dealCommand.command('outreach').description("Edit, send, or cancel a deal's message"),
+  ),
+);
+
+withGlobalOptions(
+  withToolExecutionOptions(
+    outreachCommand
+      .command('edit')
+      .description("Edit the deal's unsent draft (write: needs --yes)")
+      .argument('<deal_id>', 'deal id')
+      .option('--subject <text>', 'new email subject')
+      .option('--body <text>', 'new message text')
+      .option('--body-file <path>', 'read the new message text from a file; - for stdin')
+      .option('--recipient <email>', 'new email recipient: an email of a Person on the deal')
+      .option('--thread <id>', 'Gmail thread of the deal to reply in, or "new"')
+      .option('--draft-version <v>', 'refuse the edit if the draft changed since this version'),
+  ),
+).action(async (dealId: string, _options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await outreachEditCommand(dealId, {
+    ...executionOptions(opts),
+    subject: opts.subject,
+    body: opts.body,
+    bodyFile: opts.bodyFile,
+    recipient: opts.recipient,
+    thread: opts.thread,
+    draftVersion: opts.draftVersion,
+  });
+});
+
+withGlobalOptions(
+  withToolExecutionOptions(
+    outreachCommand
+      .command('send')
+      .description("Preview, confirm, and send the deal's draft; the owner approves it in Every (destructive)")
+      .argument('<deal_id>', 'deal id')
+      .option('--draft-version <v>', 'send this exact draft version without reading the draft first'),
+  ),
+).action(async (dealId: string, _options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await outreachSendCommand(dealId, { ...executionOptions(opts), draftVersion: opts.draftVersion });
+});
+
+withGlobalOptions(
+  withToolExecutionOptions(
+    outreachCommand
+      .command('cancel')
+      .description('Stop a scheduled or held send (write: needs --yes)')
+      .argument('<deal_id>', 'deal id')
+      .requiredOption('--send-id <id>', 'send id from every deal view <deal_id> --auto-sends'),
+  ),
+).action(async (dealId: string, _options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await outreachCancelCommand(dealId, { ...executionOptions(opts), sendId: opts.sendId });
 });
 
 withGlobalOptions(
@@ -556,16 +735,133 @@ function addPersonListCommand(parent: Command, deprecation?: string): void {
   });
 }
 
-addPersonListCommand(
-  withToolExecutionOptions(
-    withGlobalOptions(
-      program
-        .command('person')
-        .description('Work with People')
-        .addHelpText('after', TOOL_CALL_HELP),
-    ),
+const personCommand = withToolExecutionOptions(
+  withGlobalOptions(
+    program
+      .command('person')
+      .description('Work with People')
+      .addHelpText('after', TOOL_CALL_HELP),
   ),
 );
+addPersonListCommand(personCommand);
+
+withGlobalOptions(
+  withToolExecutionOptions(
+    personCommand
+      .command('view')
+      .description('Show one Person')
+      .argument('<person_id>', 'Person id'),
+  ),
+).action(async (personId: string, _options: unknown, command: Command) => {
+  await personViewCommand(personId, executionOptions(command.optsWithGlobals()));
+});
+
+withGlobalOptions(
+  withToolExecutionOptions(
+    personCommand
+      .command('create')
+      .description('Create a Person (write: needs --yes); search with every person list first')
+      .requiredOption('--name <name>', 'full name')
+      .option('--email <email>', 'primary email')
+      .option('--phone <phone>', 'primary phone')
+      .option('--job-title <title>', 'job title')
+      .option('--company <name>', 'employer name as text')
+      .option('--location <text>', 'location')
+      .option('--headline <text>', 'short headline')
+      .option('--industry <text>', 'industry')
+      .option('--address <text>', 'postal address')
+      .option('--notes <text>', 'notes'),
+  ),
+).action(async (_options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await personCreateCommand({
+    ...executionOptions(opts),
+    name: opts.name,
+    email: opts.email,
+    phone: opts.phone,
+    jobTitle: opts.jobTitle,
+    company: opts.company,
+    location: opts.location,
+    headline: opts.headline,
+    industry: opts.industry,
+    address: opts.address,
+    notes: opts.notes,
+  });
+});
+
+const companyCommand = withToolExecutionOptions(
+  withGlobalOptions(
+    program
+      .command('company')
+      .description('Work with Companies')
+      .addHelpText('after', TOOL_CALL_HELP),
+  ),
+);
+
+withGlobalOptions(
+  withToolExecutionOptions(
+    companyCommand
+      .command('list')
+      .description('List Companies')
+      .option('--search <q>', 'search Companies by name, email, phone, or industry')
+      .option('--limit <n>', 'maximum number of Companies to return (up to 100)'),
+  ),
+).action(async (_options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await companyListCommand({ ...executionOptions(opts), search: opts.search, limit: opts.limit });
+});
+
+withGlobalOptions(
+  withToolExecutionOptions(
+    companyCommand
+      .command('view')
+      .description('Show one Company')
+      .argument('<company_id>', 'Company id'),
+  ),
+).action(async (companyId: string, _options: unknown, command: Command) => {
+  await companyViewCommand(companyId, executionOptions(command.optsWithGlobals()));
+});
+
+withGlobalOptions(
+  withToolExecutionOptions(
+    companyCommand
+      .command('create')
+      .description('Create a Company (write: needs --yes); search with every company list first')
+      .requiredOption('--name <name>', 'Company name')
+      .option('--email <email>', 'primary email')
+      .option('--phone <phone>', 'primary phone')
+      .option('--website <url>', 'website')
+      .option('--industry <text>', 'industry')
+      .option('--address <text>', 'postal address')
+      .option('--lead-source <text>', 'where the Company came from')
+      .option('--notes <text>', 'notes'),
+  ),
+).action(async (_options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await companyCreateCommand({
+    ...executionOptions(opts),
+    name: opts.name,
+    email: opts.email,
+    phone: opts.phone,
+    website: opts.website,
+    industry: opts.industry,
+    address: opts.address,
+    leadSource: opts.leadSource,
+    notes: opts.notes,
+  });
+});
+
+withGlobalOptions(
+  withToolExecutionOptions(
+    program
+      .command('approvals')
+      .description('List requests that wait for approval in Every (read only)')
+      .option('--all', 'show every request of the last 24 hours, from every connection'),
+  ),
+).action(async (_options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await approvalsCommand({ ...executionOptions(opts), all: opts.all });
+});
 
 addPersonListCommand(
   withToolExecutionOptions(

@@ -3,10 +3,12 @@ import { CliError } from '../lib/errors.js';
 import { ExitCode } from '../lib/exit-codes.js';
 import { emit } from '../lib/output.js';
 import { documentKind, DocumentKind, preservedExclusions, record, recipientBinding, RecipientBinding, recipientLines } from '../lib/recipients.js';
+import { renderTable, shortTime, TableColumn } from '../lib/table.js';
 import {
   executeToolCall,
   invokeToolCall,
   ToolCallData,
+  toolCallHuman,
   ToolExecutionOptions,
 } from './tools.js';
 
@@ -19,8 +21,15 @@ interface InvoiceListOptions extends ListOptions {
   status?: string;
 }
 
-interface DealListOptions extends ListOptions {
+export interface DealListOptions extends ListOptions {
   stage?: string;
+  /** Attention reasons, each a value or a comma list. */
+  attention?: string[];
+  staleDays?: string;
+  owner?: string;
+  mine?: boolean;
+  since?: string;
+  sort?: string;
 }
 
 interface PersonListOptions extends ListOptions {}
@@ -95,7 +104,7 @@ function parseLimit(value: string | undefined): number | undefined {
   return limit;
 }
 
-function addLimit(args: Record<string, unknown>, value: string | undefined): void {
+export function addLimit(args: Record<string, unknown>, value: string | undefined): void {
   const limit = parseLimit(value);
   if (limit !== undefined) args.limit = limit;
 }
@@ -135,7 +144,7 @@ function parsePositiveNumber(value: string | undefined, flag: string): number {
   return parsed;
 }
 
-function nonEmpty(value: string | undefined): string | undefined {
+export function nonEmpty(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
 }
@@ -569,8 +578,120 @@ export async function dealListCommand(opts: DealListOptions = {}): Promise<void>
   if (opts.stage !== undefined) args.stage = opts.stage;
   if (opts.search !== undefined) args.search = opts.search;
   addLimit(args, opts.limit);
+  // The attention-sweep filters (list_deals, 2026-11). A call without them
+  // sends the same arguments and prints the same output as before.
+  const sweep = dealSweepArgs(opts);
+  Object.assign(args, sweep);
+  const human = Object.keys(sweep).length > 0 ? dealTableHuman : undefined;
 
-  await withStageErrors(opts.stage, () => executeToolCall('list_deals', opts, async () => args));
+  await withStageErrors(opts.stage, () =>
+    executeToolCall('list_deals', opts, async () => args, undefined, undefined, human));
+}
+
+export const ATTENTION_REASONS = ['needs_reply', 'step_due', 'draft_ready', 'stale'] as const;
+const DEAL_SORTS = new Set(['last_activity_at']);
+
+function parseAttention(values: string[] | undefined): string[] | undefined {
+  if (values === undefined) return undefined;
+  const reasons = Array.from(new Set(values
+    .flatMap((value) => value.split(','))
+    .map((value) => value.trim())
+    .filter(Boolean)));
+  const unknown = reasons.filter((reason) => !(ATTENTION_REASONS as readonly string[]).includes(reason));
+  if (reasons.length === 0 || unknown.length > 0) {
+    throw new CliError(`--attention must be one or more of: ${ATTENTION_REASONS.join(', ')}`, ExitCode.USAGE, 'usage');
+  }
+  return reasons;
+}
+
+function dealSweepArgs(opts: DealListOptions): Record<string, unknown> {
+  const args: Record<string, unknown> = {};
+  const attention = parseAttention(opts.attention);
+  if (attention) args.attention = attention;
+
+  if (opts.staleDays !== undefined) {
+    const days = Number(opts.staleDays);
+    if (!Number.isInteger(days) || days < 1) {
+      throw new CliError('--stale-days must be a whole number of days, 1 or more', ExitCode.USAGE, 'usage');
+    }
+    args.inactive_days = days;
+  }
+
+  const owner = nonEmpty(opts.owner);
+  if (opts.owner !== undefined && !owner) {
+    throw new CliError('--owner must be me, an email, or a user id', ExitCode.USAGE, 'usage');
+  }
+  if (opts.mine && owner && owner !== 'me') {
+    throw new CliError('Use --mine or --owner, not both', ExitCode.USAGE, 'usage');
+  }
+  if (opts.mine) args.owner = 'me';
+  else if (owner) args.owner = owner;
+
+  if (opts.since !== undefined) {
+    const since = opts.since.trim();
+    if (!since || Number.isNaN(Date.parse(since))) {
+      throw new CliError('--since must be an ISO 8601 time, for example 2026-11-01T00:00:00Z', ExitCode.USAGE, 'usage');
+    }
+    args.updated_since = since;
+  }
+
+  if (opts.sort !== undefined) {
+    if (!DEAL_SORTS.has(opts.sort)) {
+      throw new CliError(`--sort must be: ${Array.from(DEAL_SORTS).join(', ')}`, ExitCode.USAGE, 'usage');
+    }
+    args.sort = opts.sort;
+  }
+  return args;
+}
+
+function dealName(deal: Record<string, unknown>): string {
+  return stringField(deal, ['display_name', 'name', 'label', 'contact', 'company']) ?? '';
+}
+
+function nextStepText(value: unknown): string {
+  const step = record(value);
+  const title = typeof step.title === 'string' ? step.title : '';
+  if (!title) return '';
+  return typeof step.do_by === 'string' && step.do_by ? `${title} (${step.do_by})` : title;
+}
+
+/** The deal table for the attention-sweep filters. It shows only what the server returned. */
+export function dealTableHuman(data: ToolCallData): string {
+  const structured = record(data.structured_content);
+  if (!Array.isArray(structured.deals)) return toolCallHuman(data);
+  const deals = structured.deals.map(record);
+  if (deals.length === 0) return 'No deals match these filters.';
+
+  const columns: TableColumn[] = [
+    { header: 'id', max: 36 },
+    { header: 'deal', max: 32 },
+    { header: 'stage', max: 20 },
+  ];
+  const cells: Array<(deal: Record<string, unknown>) => string> = [
+    (deal) => String(deal.id ?? ''),
+    dealName,
+    (deal) => stringField(deal, ['stage_label', 'stage']) ?? '',
+  ];
+  if (deals.some((deal) => typeof deal.last_activity_at === 'string')) {
+    columns.push({ header: 'last activity', max: 16 });
+    cells.push((deal) => shortTime(deal.last_activity_at));
+  }
+  if (deals.some((deal) => nextStepText(deal.next_step))) {
+    columns.push({ header: 'next step', max: 48 });
+    cells.push((deal) => nextStepText(deal.next_step));
+  }
+  if (deals.some((deal) => Array.isArray(deal.attention) && deal.attention.length > 0)) {
+    columns.push({ header: 'attention' });
+    cells.push((deal) => (Array.isArray(deal.attention) ? deal.attention.join(', ') : ''));
+  }
+
+  const lines = [renderTable(columns, deals.map((deal) => cells.map((render) => render(deal))))];
+  const page = record(structured.pagination);
+  if (page.has_more === true) {
+    const total = typeof page.total_matched === 'number' ? ` of ${page.total_matched}` : '';
+    lines.push('', `Showing ${deals.length}${total} deals. Raise --limit to see more.`);
+  }
+  return lines.join('\n');
 }
 
 export async function dealMoveCommand(

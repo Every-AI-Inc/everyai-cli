@@ -1,7 +1,7 @@
 import { resolveBaseUrl } from '../lib/config.js';
 import { readCachedTools } from '../lib/mcp.js';
 import { emit } from '../lib/output.js';
-import { classify, requirementDescription } from '../lib/policy.js';
+import { classify, requirementDescription, shortCommandNote } from '../lib/policy.js';
 
 interface PolicyExplainOptions {
   json?: boolean;
@@ -25,6 +25,7 @@ export async function policyExplainCommand(
   const note = cachedTools?.some((candidate) => candidate.name === name)
     ? undefined
     : 'No cached tool metadata matched this name; classification used local overrides and name patterns only.';
+  const shortCommands = shortCommandNote(name);
 
   const data = {
     tool: name,
@@ -33,6 +34,7 @@ export async function policyExplainCommand(
     reason: classification.reason,
     requirements,
     note,
+    ...(shortCommands ? { short_commands: shortCommands } : {}),
   };
 
   const human = [
@@ -42,6 +44,7 @@ export async function policyExplainCommand(
     `Reason: ${data.reason}`,
     `Interactive: ${requirements.interactive}`,
     `Non-interactive: ${requirements.non_interactive}`,
+    shortCommands,
     note ? `Note: ${note}` : undefined,
   ].filter((line): line is string => Boolean(line)).join('\n');
 

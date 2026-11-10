@@ -69,6 +69,54 @@ const mockStages = [
   { key: 'lost', label: 'Lost', role: 'lost', criteria: 'No longer pursuing.' },
 ];
 
+// view_deal(include=["draft"]) of the live server: the unsent draft and the
+// version that deal_outreach send binds to.
+const mockDraft = {
+  channel: 'email',
+  action_id: 'step-1',
+  to: 'pat@example.test',
+  subject: 'Following up',
+  body: 'Hi Pat,\nChecking in on the proposal.',
+  draft_version: 'dv1:mock-version',
+};
+
+// get_workspace_priorities pending_approvals.requests: this connection's
+// pending and approved rows, one row of another connection, and one denied row.
+const mockApprovalRequests = [
+  {
+    request_id: 'req-pending', tool: 'deal_outreach',
+    arguments: { deal_id: 'deal_1', action: 'send', draft_version: 'dv1:mock-version' },
+    status: 'pending', created_at: '2026-11-10T15:00:00Z', expires_at: '2026-11-11T15:00:00Z',
+    connection_name: 'Every CLI', this_connection: true,
+  },
+  {
+    request_id: 'req-approved', tool: 'update_deal',
+    arguments: { deal_id: 'deal_2', members: { remove: ['user_9'] } },
+    status: 'approved', created_at: '2026-11-10T14:00:00Z', expires_at: '2026-11-11T14:00:00Z',
+    connection_name: 'Every CLI', this_connection: true,
+  },
+  {
+    request_id: 'req-other', tool: 'deal_outreach',
+    arguments: { deal_id: 'deal_3', action: 'send', body: 'Private message text' },
+    status: 'pending', created_at: '2026-11-10T13:00:00Z', expires_at: '2026-11-11T13:00:00Z',
+    connection_name: 'Claude', this_connection: false,
+  },
+  {
+    request_id: 'req-denied', tool: 'delete_records',
+    arguments: { records: [{ kind: 'deal', id: 'deal_4' }], operation_id: 'op-1' },
+    status: 'denied', created_at: '2026-11-10T12:00:00Z', expires_at: '2026-11-11T12:00:00Z',
+    connection_name: 'Every CLI', this_connection: true,
+  },
+];
+
+function structuredResult(id, text, structuredContent) {
+  return response({
+    jsonrpc: '2.0',
+    id,
+    result: { content: [{ type: 'text', text }], structuredContent, isError: false },
+  });
+}
+
 const confirmationArg = 'confirmation';
 const identifyingArgs = [
   'invoice_id',
@@ -606,6 +654,35 @@ export function installMockMcpFetch(mockBaseUrl, mockStateFile, visitCallback = 
             isError: false,
           },
         });
+      }
+
+      // Short-command reads (2026-11). Each returns the live server's shape.
+      if (name === 'view_deal' && Array.isArray(args.include) && args.include.includes('draft')) {
+        const draft = process.env.EVERYAI_MOCK_NO_DRAFT === '1' ? null : mockDraft;
+        return structuredResult(body.id, `Deal ${args.deal_id}.`, { id: args.deal_id, draft });
+      }
+      if (name === 'view_person' || name === 'view_company') {
+        const kind = name === 'view_person' ? 'person' : 'company';
+        return structuredResult(body.id, `${kind} loaded.`, {
+          party: { kind, id: args[`${kind}_id`], name: kind === 'person' ? 'Pat Example' : 'Example Studio' },
+        });
+      }
+      if (name === 'get_workspace_priorities') {
+        const variant = process.env.EVERYAI_MOCK_PRIORITIES ?? 'current';
+        const priorities = { success: true, enabled: true, items: [{ id: 'p1', rank: 1, title: 'Reply to Pat', body: '' }] };
+        if (variant === 'unavailable') {
+          priorities.pending_approvals = {
+            available: false, requests: [], message: 'Approval requests are temporarily unavailable.',
+          };
+        } else if (variant === 'current' || variant === 'no_connection_field') {
+          const requests = mockApprovalRequests.map((request) => {
+            if (variant === 'current') return request;
+            const { connection_name: _name, this_connection: _mine, ...older } = request;
+            return older;
+          });
+          priorities.pending_approvals = { available: true, window_hours: 24, requests, how_to_use: '...' };
+        }
+        return structuredResult(body.id, 'Priorities loaded.', priorities);
       }
 
       const companies = name === 'list_companies' ? configuredCompanies() : undefined;
