@@ -84,26 +84,36 @@ describe('autoInstallSkill', () => {
     expect(result.installed.map((entry) => entry.host)).toEqual(['claude', 'codex']);
   });
 
-  it('reports already_present and leaves an existing copy untouched', async () => {
+  it('reports already_present and leaves an existing user-level copy untouched', async () => {
     const existing = path.join(homeDir, '.codex', 'skills', 'use-every');
     await mkdir(existing, { recursive: true });
     await writeFile(path.join(existing, 'SKILL.md'), '# mine\n');
+
+    const result = await run();
+
+    expect(result).toMatchObject({
+      installed: [],
+      already_present: [{ host: 'codex', path: existing }],
+      skipped_reason: null,
+    });
+    expect(await readFile(path.join(existing, 'SKILL.md'), 'utf8')).toBe('# mine\n');
+    expect(log).toBe('');
+  });
+
+  it('still installs at user level when only a project copy exists in the current folder', async () => {
     const projectCopy = path.join(cwd, '.claude', 'skills', 'use-every');
     await mkdir(projectCopy, { recursive: true });
     await mkdir(path.join(homeDir, '.claude'));
 
     const result = await run();
 
+    const userCopy = path.join(homeDir, '.claude', 'skills', 'use-every');
     expect(result).toMatchObject({
-      installed: [],
-      already_present: [
-        { host: 'claude', path: projectCopy },
-        { host: 'codex', path: existing },
-      ],
+      installed: [{ host: 'claude', path: userCopy }],
+      already_present: [],
       skipped_reason: null,
     });
-    expect(await readFile(path.join(existing, 'SKILL.md'), 'utf8')).toBe('# mine\n');
-    expect(log).toBe('');
+    expect(await readFile(path.join(userCopy, 'SKILL.md'), 'utf8')).toContain('name: use-every');
   });
 
   it('is idempotent: a second run reports already_present', async () => {

@@ -105,7 +105,10 @@ export async function autoInstallSkill(
     const copySkill = opts.copySkill ?? defaultCopySkill;
     const homeDir = opts.homeDir ?? os.homedir();
     const sourceDir = opts.sourceDir ?? bundledSkillDir();
-    const known = skillInstallPaths(opts.cwd ?? process.cwd(), homeDir);
+    // Only user-level copies count. A project copy in the current folder serves
+    // that project alone, so the agent still needs the user-level copy.
+    // (skillInstallPaths with cwd = homeDir yields exactly the user-level paths.)
+    const known = skillInstallPaths(homeDir, homeDir);
     const targets = userSkillTargets(homeDir);
     const result = emptyResult(null);
     let detected = 0;
