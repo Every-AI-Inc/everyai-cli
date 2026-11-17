@@ -1,0 +1,18 @@
+{
+  "name": "everyai-cli",
+  "owner": {
+    "name": "Every AI Inc."
+  },
+  "metadata": {
+    "description": "The Every plugin: teaches a coding agent to run a service business in Every through the every CLI"
+  },
+  "plugins": [
+    {
+      "name": "every",
+      "source": "./",
+      "description": "Run your business in Every — pipeline, invoices, proposals, People and Companies — via the every CLI",
+      "category": "productivity",
+      "homepage": "https://every.ai"
+    }
+  ]
+}

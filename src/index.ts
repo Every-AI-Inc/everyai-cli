@@ -116,12 +116,19 @@ const signup = withGlobalOptions(
     .allowExcessArguments(false)
     .description('Create an Every account or sign in via one browser step; no TTY needed')
     .option('--timeout <seconds>', 'how long to wait for the browser authorization', '300')
+    .option('--no-skill', 'do not install the use-every skill for detected coding agents')
     .addHelpText(
       'after',
       [
         '',
         'With --json, stdout is NDJSON: an authorization_required event with the URL,',
         'a waiting_for_authorization event, then the result envelope as the last line.',
+        'The command waits up to --timeout seconds (default 300) for the browser step:',
+        'an agent must run it in the background or allow at least 5 minutes.',
+        '',
+        'With --json or without a TTY, it also installs the use-every skill at user level',
+        'for each detected coding agent (~/.claude, ~/.codex or ~/.agents) that has no copy,',
+        'and reports the result in data.skill. Use --no-skill to skip that.',
         '',
         'Then finish signup:',
         '  every signup complete --org-name "Acme Studio" --yes --json',
@@ -130,7 +137,12 @@ const signup = withGlobalOptions(
     ),
 ).action(async (_options: unknown, command: Command) => {
   const opts = command.optsWithGlobals();
-  await signupCommand({ json: opts.json, staging: opts.staging, timeout: opts.timeout });
+  await signupCommand({
+    json: opts.json,
+    staging: opts.staging,
+    timeout: opts.timeout,
+    skill: opts.skill,
+  });
 });
 
 withGlobalOptions(
