@@ -656,7 +656,7 @@ describe('token exchange and storage', () => {
       await expect(getToken({ baseUrl: 'http://127.0.0.1:1', store })).rejects.toMatchObject({
         exitCode: ExitCode.AUTH,
         code: 'auth',
-        message: 'Not logged in. Run \'every login\'.',
+        message: 'Not logged in. Run \'every signup\' (or \'every login\' at a terminal).',
       });
     } finally {
       await rm(dir, { recursive: true, force: true });

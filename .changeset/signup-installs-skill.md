@@ -10,3 +10,4 @@ One agent-run `every signup` now leaves the person with an account and the Every
 - The install notice now says `Get started: every signup`. `every login` needs a terminal and cannot create an account.
 - Claude Code plugin: added `.claude-plugin/marketplace.json`, so `/plugin marketplace add Every-AI-Inc/everyai-cli` and `/plugin install every@everyai-cli` work. Before, the marketplace file was missing and the add failed.
 - The `use-every` skill (revision 8) and the README describe the new signup behavior.
+- A command that has no credential now says `Not logged in. Run 'every signup' (or 'every login' at a terminal).` Before, it named only `every login`, which an agent cannot run.

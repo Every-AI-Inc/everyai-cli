@@ -20,7 +20,7 @@ import { installMockMcpFetch, INVALID_API_KEY, VALID_API_KEY } from './helpers/m
  * rejected key must not be reported as a missing browser login.
  */
 
-const NOT_LOGGED_IN = "Not logged in. Run 'every login'.";
+const NOT_LOGGED_IN = "Not logged in. Run 'every signup' (or 'every login' at a terminal).";
 
 const oauthInfo: UserInfo = {
   user_id: 'user_123', email: 'person@example.com', name: 'Person Example',

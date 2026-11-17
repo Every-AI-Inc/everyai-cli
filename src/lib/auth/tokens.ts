@@ -349,7 +349,7 @@ export async function getToken(opts: GetTokenOptions = {}): Promise<string> {
   const store = opts.store ?? (await createTokenStore());
   const tokenSet = await store.get(environmentKey);
   if (!tokenSet) {
-    throw new CliError('Not logged in. Run \'every login\'.', ExitCode.AUTH, 'auth');
+    throw new CliError('Not logged in. Run \'every signup\' (or \'every login\' at a terminal).', ExitCode.AUTH, 'auth');
   }
 
   const now = opts.now ?? Date.now;
@@ -358,7 +358,7 @@ export async function getToken(opts: GetTokenOptions = {}): Promise<string> {
     return refreshToken(baseUrl, environmentKey, store, tokenSet, now);
   }
 
-  throw new CliError('Not logged in. Run \'every login\'.', ExitCode.AUTH, 'auth');
+  throw new CliError('Not logged in. Run \'every signup\' (or \'every login\' at a terminal).', ExitCode.AUTH, 'auth');
 }
 
 export function toStoredTokenSet(params: {

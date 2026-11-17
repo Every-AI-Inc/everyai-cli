@@ -207,7 +207,7 @@ export async function requestUserInfo({ baseUrl, accessToken }: {
     );
   } catch (err) {
     if (err instanceof HttpStatusError && err.status === 401) {
-      throw new CliError('Not logged in. Run \'every login\'.', ExitCode.AUTH, 'auth');
+      throw new CliError('Not logged in. Run \'every signup\' (or \'every login\' at a terminal).', ExitCode.AUTH, 'auth');
     }
     if (err instanceof HttpStatusError) {
       throw new CliError(
