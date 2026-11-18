@@ -5,7 +5,7 @@ try {
     [
       '@everyai/cli installed.',
       '- Command: every (also available as everyai)',
-      '- Get started: every login',
+      '- Get started: every signup  (new and existing accounts; an agent can run it)',
       '- Teach agents: every skills install claude|codex',
       '- One-shot docs: every docs',
       '',

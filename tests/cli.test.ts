@@ -312,6 +312,9 @@ describe('CLI contract', () => {
     expect(result.code).toBe(0);
     expect(result.stdout).toContain('every');
     expect(result.stdout).toContain('everyai');
+    // `every login` needs a TTY and cannot create an account; point at signup.
+    expect(result.stdout).toContain('Get started: every signup');
+    expect(result.stdout).not.toContain('every login');
   });
 
   it('package.json exposes both every and everyai bins', () => {

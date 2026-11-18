@@ -122,6 +122,21 @@ function targetLabel(target: SkillOfferTarget): string {
   return target === 'claude' ? 'Claude Code' : 'Codex';
 }
 
+/** True when a person at a terminal can answer the skill offer. */
+export function skillOfferIsInteractive(
+  opts: Pick<PostLoginSkillOfferOptions, 'json' | 'input' | 'output' | 'errorOutput'> = {},
+): boolean {
+  const input = opts.input ?? process.stdin;
+  const output = opts.output ?? process.stdout;
+  const promptsToProcessStderr = opts.errorOutput === undefined || opts.errorOutput === process.stderr;
+  return !(
+    opts.json ||
+    input.isTTY !== true ||
+    output.isTTY !== true ||
+    (promptsToProcessStderr && process.stderr.isTTY !== true)
+  );
+}
+
 /** Best-effort interactive offer shown only after a browser login succeeds. */
 export async function maybeOfferSkillAfterLogin(
   opts: PostLoginSkillOfferOptions = {},
@@ -130,13 +145,7 @@ export async function maybeOfferSkillAfterLogin(
   const output = opts.output ?? process.stdout;
   const errorOutput = opts.errorOutput ?? process.stderr;
 
-  const promptsToProcessStderr = opts.errorOutput === undefined || opts.errorOutput === process.stderr;
-  if (
-    opts.json ||
-    input.isTTY !== true ||
-    output.isTTY !== true ||
-    (promptsToProcessStderr && process.stderr.isTTY !== true)
-  ) return;
+  if (!skillOfferIsInteractive(opts)) return;
 
   try {
     const fileSystem = opts.fileSystem ?? defaultSkillOfferFileSystem;

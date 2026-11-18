@@ -167,7 +167,7 @@ async function unauthorizedError(
   token: string,
 ): Promise<CliError> {
   if (!isApiKeyToken(token)) {
-    return new CliError('Not logged in. Run \'every login\'.', ExitCode.AUTH, 'auth');
+    return new CliError('Not logged in. Run \'every signup\' (or \'every login\' at a terminal).', ExitCode.AUTH, 'auth');
   }
 
   let reason: string | undefined;

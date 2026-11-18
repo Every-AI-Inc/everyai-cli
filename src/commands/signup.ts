@@ -4,7 +4,14 @@ import { CliError } from '../lib/errors.js';
 import { ExitCode } from '../lib/exit-codes.js';
 import { formatSuccess } from '../lib/output.js';
 import { invalidateUserInfoCache } from '../lib/auth/userinfo.js';
-import { afterBrowserLogin, BrowserLoginDependencies, completeBrowserLogin } from './auth.js';
+import { autoInstallSkill, SkillAutoInstallResult } from '../lib/skill-auto-install.js';
+import { refreshInstalledSkills } from '../lib/skill-refresh.js';
+import {
+  afterBrowserLogin,
+  BrowserLoginDependencies,
+  completeBrowserLogin,
+  skillOfferIsInteractive,
+} from './auth.js';
 import { InvokeHooks, invokeToolCall, ToolCallData } from './tools.js';
 
 export const SIGNUP_STATUS_TOOL = 'get_signup_status';
@@ -19,6 +26,8 @@ export interface SignupOptions {
   json?: boolean;
   staging?: boolean;
   timeout?: string;
+  /** `false` (from `--no-skill`) skips the skill install and the interactive offer. */
+  skill?: boolean;
 }
 
 export interface SignupStatusOptions {
@@ -97,14 +106,51 @@ function writeLine(output: Writable, value: unknown): void {
   output.write(`${typeof value === 'string' ? value : JSON.stringify(value)}\n`);
 }
 
+/** The next step in plain words, for an account that still needs its profile. */
+export function signupNextStep(envelope: SignupEnvelope): string | undefined {
+  if (envelope.account_ready) return undefined;
+  return (
+    'Ask the person for the organization name, then run: ' +
+    'every signup complete --org-name "<name>" --yes --json'
+  );
+}
+
+/** The wait guidance carried by the first NDJSON event of `every signup --json`. */
+export function signupWaitGuidance(timeoutSeconds: number): string {
+  const minutes = Math.ceil(timeoutSeconds / 60);
+  return (
+    `This command waits up to ${timeoutSeconds} seconds for the person to finish the browser step. ` +
+    `Run it in the background, or allow a tool timeout of at least ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}. ` +
+    'Do not stop it before the last line.'
+  );
+}
+
+function skillHuman(skill: SkillAutoInstallResult): string[] {
+  // Installs and failures already went to stderr; say only what is not obvious.
+  return skill.already_present.map(
+    (entry) =>
+      `The use-every skill is already installed for ${entry.host === 'claude' ? 'Claude Code' : 'Codex'} at ${entry.path}.`,
+  );
+}
+
 function emitEnvelope(
   output: Writable,
   envelope: SignupEnvelope,
   opts: { json?: boolean; staging?: boolean },
+  skill?: SkillAutoInstallResult,
 ): void {
-  writeLine(output, opts.json
-    ? formatSuccess(envelope, { json: true, staging: opts.staging })
-    : signupHuman(envelope));
+  if (!opts.json) {
+    writeLine(output, [signupHuman(envelope), ...(skill ? skillHuman(skill) : [])].join('\n'));
+    return;
+  }
+  // `next_step` and `skill` are added by the CLI; the other fields are the server's.
+  const nextStep = signupNextStep(envelope);
+  const data: SignupEnvelope = {
+    ...envelope,
+    ...(nextStep ? { next_step: nextStep } : {}),
+    ...(skill ? { skill } : {}),
+  };
+  writeLine(output, formatSuccess(data, { json: true, staging: opts.staging }));
 }
 
 /** The tool's structured result is the envelope; tolerate a server that only sends it as JSON text. */
@@ -174,7 +220,8 @@ export function signupHuman(envelope: SignupEnvelope): string {
     }
     const nameHint = suggestions?.organization_name?.value ?? '<name>';
     lines.push(
-      `Finish: every signup complete --org-name ${quoted(nameHint)} [--description "<text>"] [--link <url>] --yes`,
+      'Next step: ask the person for the organization name, then run:',
+      `  every signup complete --org-name ${quoted(nameHint)} [--description "<text>"] [--link <url>] --yes`,
     );
   }
 
@@ -222,7 +269,8 @@ async function forgetCachedIdentity(staging: boolean | undefined): Promise<void>
  * Enter and never opens the web sign-up page. The authorization URL is printed
  * before the browser is tried (in --json mode as the first NDJSON line), so an
  * agent can hand it to the user when no browser opens. The last line is the
- * normal envelope.
+ * normal envelope. With --json or without a TTY it also installs the bundled
+ * skill for each detected agent host and reports that in `data.skill`.
  */
 export async function signupCommand(
   opts: SignupOptions = {},
@@ -246,7 +294,14 @@ export async function signupCommand(
       flow: {
         timeoutMs: timeoutSeconds * 1000,
         onAuthorizationUrl(url) {
-          if (opts.json) writeLine(output, { event: 'authorization_required', url });
+          if (opts.json) {
+            writeLine(output, {
+              event: 'authorization_required',
+              url,
+              timeout_seconds: timeoutSeconds,
+              guidance: signupWaitGuidance(timeoutSeconds),
+            });
+          }
           else writeLine(errorOutput, `Authorize Every in your browser: ${url}`);
         },
         onBrowserOpened(opened) {
@@ -269,8 +324,27 @@ export async function signupCommand(
 
   const envelope = await fetchSignupStatus(opts);
   await forgetCachedIdentity(opts.staging);
-  emitEnvelope(output, envelope, opts);
-  await afterBrowserLogin({ json: opts.json }, deps);
+
+  if (skillOfferIsInteractive({ json: opts.json, ...deps })) {
+    // A person at a terminal: keep the interactive offer (unless --no-skill).
+    emitEnvelope(output, envelope, opts);
+    if (opts.skill === false) {
+      await refreshInstalledSkills({ ...deps.skillRefresh, errorOutput });
+    } else {
+      await afterBrowserLogin({ json: opts.json }, deps);
+    }
+    return;
+  }
+
+  // An agent (--json or no TTY): nobody can answer an offer, so install the skill
+  // for each detected agent host. The envelope stays the last line of stdout.
+  await refreshInstalledSkills({ ...deps.skillRefresh, errorOutput });
+  const skill = await autoInstallSkill({
+    enabled: opts.skill !== false,
+    ...deps.skillRefresh,
+    errorOutput,
+  });
+  emitEnvelope(output, envelope, opts, skill);
 }
 
 /** `every signup status`: the current signup envelope for the stored login. */

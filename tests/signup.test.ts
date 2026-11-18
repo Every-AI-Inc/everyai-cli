@@ -17,6 +17,15 @@ const envelopes = JSON.parse(
 const bundledSkill = readFileSync(path.join(repoRoot, 'skills', 'use-every', 'SKILL.md'), 'utf8');
 
 const MOCK_BASE_URL = 'https://mock-mcp.everyai.test';
+const NEXT_STEP =
+  'Ask the person for the organization name, then run: every signup complete --org-name "<name>" --yes --json';
+const NO_HOST_SKILL = {
+  name: 'use-every',
+  installed: [],
+  already_present: [],
+  failed: [],
+  skipped_reason: 'no_agent_host',
+};
 const STAGING_BASE_URL = 'https://admin-mcp-staging.up.railway.app';
 
 interface CliResult {
@@ -162,7 +171,13 @@ describe('every signup', () => {
 
       expect(result.code, result.stderr).toBe(0);
       const out = lines(result.stdout);
-      expect(out[0]).toEqual({ event: 'authorization_required', url: expect.any(String) });
+      // The first event tells the agent how long the command waits (gap G5).
+      expect(out[0]).toEqual({
+        event: 'authorization_required',
+        url: expect.any(String),
+        timeout_seconds: 300,
+        guidance: expect.stringMatching(/waits up to 300 seconds.*background.*at least 5 minutes/),
+      });
       expect(out[1]).toEqual({
         event: 'waiting_for_authorization',
         browser_opened: true,
@@ -170,7 +185,7 @@ describe('every signup', () => {
       });
       expect(out[out.length - 1]).toEqual({
         ok: true,
-        data: envelopes.needs_profile,
+        data: { ...envelopes.needs_profile, next_step: NEXT_STEP, skill: NO_HOST_SKILL },
         env: 'custom',
         schema_version: 1,
       });
@@ -209,7 +224,8 @@ describe('every signup', () => {
       expect(result.stdout).toContain('Signup is not finished');
       expect(result.stdout).toContain('Acme Studio');
       expect(result.stdout).toMatch(/unverified/i);
-      expect(result.stdout).toContain('every signup complete --org-name');
+      expect(result.stdout).toContain('Next step: ask the person for the organization name, then run:');
+      expect(result.stdout).toContain('every signup complete --org-name "Acme Studio"');
       expect(result.stderr).not.toContain('deprecated');
     } finally {
       await box.close();
@@ -254,10 +270,12 @@ describe('every signup', () => {
       const result = await runCli(['signup', '--json'], box.env(), box.cwd);
 
       expect(result.code, result.stderr).toBe(0);
-      expect(lastLine(result.stdout)).toMatchObject({
+      const last = lastLine(result.stdout);
+      expect(last).toMatchObject({
         ok: true,
         data: { signup_status: 'ready', account_ready: true },
       });
+      expect(last.data).not.toHaveProperty('next_step');
     } finally {
       await box.close();
     }
@@ -290,7 +308,11 @@ describe('every signup', () => {
 
       expect(result.code).toBe(3);
       const out = lines(result.stdout);
-      expect(out[0]).toMatchObject({ event: 'authorization_required' });
+      expect(out[0]).toMatchObject({
+        event: 'authorization_required',
+        timeout_seconds: 1,
+        guidance: expect.stringContaining('waits up to 1 seconds'),
+      });
       expect(out[1]).toMatchObject({ event: 'waiting_for_authorization', timeout_seconds: 1 });
       const error = lastLine(result.stdout).error as { code: string; message: string };
       expect(error.code).toBe('auth');
@@ -372,9 +394,10 @@ describe('every signup status', () => {
       const result = await runCli(['signup', 'status', '--json'], box.env({ EVERY_TOKEN: 'test-token' }), box.cwd);
 
       expect(result.code, result.stderr).toBe(0);
+      // `signup status` states the next step and never installs a skill.
       expect(JSON.parse(result.stdout)).toEqual({
         ok: true,
-        data: envelopes.needs_profile,
+        data: { ...envelopes.needs_profile, next_step: NEXT_STEP },
         env: 'custom',
         schema_version: 1,
       });
@@ -563,7 +586,7 @@ describe('every login --create-account', () => {
 });
 
 describe('installed skill refresh on signup', () => {
-  it('refreshes stale installed copies and installs nowhere new', async () => {
+  it('refreshes stale installed copies and installs nowhere new when the offer was declined', async () => {
     const box = await sandbox();
     try {
       const unstamped = await writeSkill(path.join(box.home, '.claude', 'skills', 'use-every'), '# old skill\n');
@@ -580,6 +603,10 @@ describe('installed skill refresh on signup', () => {
       expect(await readFile(unstamped, 'utf8')).toBe(bundledSkill);
       expect(await readFile(newer, 'utf8')).toContain('# from the future');
       expect(result.stderr).toContain(`Updated the use-every skill at ${path.dirname(unstamped)}`);
+      expect((lastLine(result.stdout).data as { skill: unknown }).skill).toMatchObject({
+        installed: [],
+        skipped_reason: 'declined',
+      });
       for (const notInstalled of [
         path.join(box.cwd, '.claude', 'skills', 'use-every'),
         path.join(box.home, '.codex', 'skills', 'use-every'),
@@ -587,6 +614,134 @@ describe('installed skill refresh on signup', () => {
       ]) {
         await expect(readFile(path.join(notInstalled, 'SKILL.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
       }
+    } finally {
+      await box.close();
+    }
+  });
+});
+
+describe('skill install after an agent-run signup', () => {
+  interface SkillReport {
+    installed: Array<{ host: string; path: string }>;
+    already_present: Array<{ host: string; path: string }>;
+    failed: Array<{ host: string; path: string; reason: string }>;
+    skipped_reason: string | null;
+  }
+  const skillOf = (stdout: string) => (lastLine(stdout).data as { skill: SkillReport }).skill;
+
+  it('installs the skill at user level for each detected host, then reports already_present', async () => {
+    const box = await sandbox();
+    try {
+      await Promise.all([mkdir(path.join(box.home, '.claude')), mkdir(path.join(box.home, '.codex'))]);
+      const claudeSkill = path.join(box.home, '.claude', 'skills', 'use-every');
+      const codexSkill = path.join(box.home, '.agents', 'skills', 'use-every');
+
+      const first = await runCli(['signup', '--json'], box.env(), box.cwd);
+
+      expect(first.code, first.stderr).toBe(0);
+      expect(skillOf(first.stdout)).toEqual({
+        name: 'use-every',
+        installed: [
+          { host: 'claude', path: claudeSkill },
+          { host: 'codex', path: codexSkill },
+        ],
+        already_present: [],
+        failed: [],
+        skipped_reason: null,
+      });
+      expect(await readFile(path.join(claudeSkill, 'SKILL.md'), 'utf8')).toBe(bundledSkill);
+      expect(await readFile(path.join(codexSkill, 'SKILL.md'), 'utf8')).toBe(bundledSkill);
+      // stdout stays pure NDJSON; the notice goes to stderr.
+      expect(lines(first.stdout)).toHaveLength(3);
+      expect(first.stderr).toContain(`Installed the use-every skill for Claude Code at ${claudeSkill}`);
+      // Nothing lands in the project.
+      await expect(readFile(path.join(box.cwd, '.claude', 'skills', 'use-every', 'SKILL.md'))).rejects
+        .toMatchObject({ code: 'ENOENT' });
+
+      const second = await runCli(['signup', '--json'], box.env(), box.cwd);
+      expect(second.code, second.stderr).toBe(0);
+      expect(skillOf(second.stdout)).toMatchObject({
+        installed: [],
+        already_present: [
+          { host: 'claude', path: claudeSkill },
+          { host: 'codex', path: codexSkill },
+        ],
+        skipped_reason: null,
+      });
+    } finally {
+      await box.close();
+    }
+  });
+
+  it('installs the skill for a returning user whose account is already ready', async () => {
+    const box = await sandbox();
+    try {
+      writeFileSync(box.stateFile, JSON.stringify({ listCalls: 0, toolCalls: [], signupReady: true }));
+      await mkdir(path.join(box.home, '.claude'));
+      const result = await runCli(['signup', '--json'], box.env(), box.cwd);
+
+      expect(result.code, result.stderr).toBe(0);
+      expect(lastLine(result.stdout)).toMatchObject({ data: { signup_status: 'ready', account_ready: true } });
+      expect(skillOf(result.stdout).installed).toEqual([
+        { host: 'claude', path: path.join(box.home, '.claude', 'skills', 'use-every') },
+      ]);
+    } finally {
+      await box.close();
+    }
+  });
+
+  it('skips the install with --no-skill', async () => {
+    const box = await sandbox();
+    try {
+      await mkdir(path.join(box.home, '.claude'));
+      const result = await runCli(['signup', '--no-skill', '--json'], box.env(), box.cwd);
+
+      expect(result.code, result.stderr).toBe(0);
+      expect(skillOf(result.stdout)).toMatchObject({ installed: [], skipped_reason: 'opt_out' });
+      await expect(readFile(path.join(box.home, '.claude', 'skills', 'use-every', 'SKILL.md'))).rejects
+        .toMatchObject({ code: 'ENOENT' });
+    } finally {
+      await box.close();
+    }
+  });
+
+  it('keeps the signup successful when the install fails', async () => {
+    const box = await sandbox();
+    try {
+      // `skills` is a file, so the copy into ~/.claude/skills/use-every cannot succeed.
+      await mkdir(path.join(box.home, '.claude'));
+      await writeFile(path.join(box.home, '.claude', 'skills'), 'not a directory');
+      const result = await runCli(['signup', '--json'], box.env(), box.cwd);
+
+      expect(result.code, result.stderr).toBe(0);
+      expect(lastLine(result.stdout)).toMatchObject({ ok: true, data: { signup_status: 'needs_profile' } });
+      const skill = skillOf(result.stdout);
+      expect(skill.installed).toEqual([]);
+      expect(skill.failed).toEqual([
+        {
+          host: 'claude',
+          path: path.join(box.home, '.claude', 'skills', 'use-every'),
+          reason: expect.any(String),
+        },
+      ]);
+      expect(result.stderr).toContain('Warning: could not install the use-every skill for Claude Code');
+    } finally {
+      await box.close();
+    }
+  });
+
+  it('installs without --json when there is no TTY and says so in plain words', async () => {
+    const box = await sandbox();
+    try {
+      await mkdir(path.join(box.home, '.agents'));
+      const codexSkill = path.join(box.home, '.agents', 'skills', 'use-every');
+      const first = await runCli(['signup'], box.env(), box.cwd);
+      expect(first.code, first.stderr).toBe(0);
+      expect(first.stderr).toContain(`Installed the use-every skill for Codex at ${codexSkill}`);
+      expect(await readFile(path.join(codexSkill, 'SKILL.md'), 'utf8')).toBe(bundledSkill);
+
+      const second = await runCli(['signup'], box.env(), box.cwd);
+      expect(second.stdout).toContain(`The use-every skill is already installed for Codex at ${codexSkill}.`);
     } finally {
       await box.close();
     }

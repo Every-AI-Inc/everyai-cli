@@ -34,6 +34,8 @@ In Claude Code:
 /plugin install every@everyai-cli
 ```
 
+The marketplace is `.claude-plugin/marketplace.json` in this repository; it lists one plugin, `every`, whose source is the repository root.
+
 Codex's repo-scoped marketplace location is `.agents/plugins/marketplace.json`.
 
 ## Why a CLI (vs. adding the MCP server to each host)
@@ -48,7 +50,7 @@ The CLI talks to the same Every MCP server (`admin-mcp.every.ai`) and inherits i
 
 ```bash
 # Auth
-every signup [--timeout <seconds>]   # new account or sign-in via one browser step; works without a TTY
+every signup [--timeout <seconds>] [--no-skill]  # new account or sign-in via one browser step; works without a TTY
 every signup status
 every signup complete --org-name <name> [--description <text>] [--link <url> ...] --yes
 every login [--org <name|slug|id>] [--staging]  # browser OAuth; keychain storage; refresh handled
@@ -111,15 +113,28 @@ Deprecated aliases still work and print a one-line note to stderr: `every contac
 
 `every signup` creates an Every account, or signs an existing user in, through a single browser authorization. It never opens a separate sign-up page and never waits for Enter, so a coding agent can run it on the user's behalf without a TTY:
 
-1. It prints the authorization URL first, tries to open the browser, then waits on a local loopback callback for up to `--timeout` seconds (default 300). With `--json`, stdout is NDJSON: `{"event":"authorization_required","url":"..."}`, then `{"event":"waiting_for_authorization","browser_opened":true|false,"timeout_seconds":300}`, then the usual envelope as the last line. If `browser_opened` is false, open the printed URL yourself.
-2. After the browser step it reports the server's signup status: `signup_status` is `ready` for an account that is good to go, or `needs_profile` with the one required field (`organization_name`) and unverified `profile_suggestions` to confirm with the user.
+1. It prints the authorization URL first, tries to open the browser, then waits on a local loopback callback for up to `--timeout` seconds (default 300). With `--json`, stdout is NDJSON: `{"event":"authorization_required","url":"...","timeout_seconds":300,"guidance":"..."}`, then `{"event":"waiting_for_authorization","browser_opened":true|false,"timeout_seconds":300}`, then the usual envelope as the last line. If `browser_opened` is false, open the printed URL yourself. The command waits for the browser step, so an agent must run it in the background or allow a tool timeout of at least 5 minutes; the first event says so in `guidance`.
+2. After the browser step it reports the server's signup status: `signup_status` is `ready` for an account that is good to go, or `needs_profile` with the one required field (`organization_name`) and unverified `profile_suggestions` to confirm with the user. For an account that is not ready, the output also states the next step in plain words (`data.next_step` with `--json`): ask the person for the organization name, then run `every signup complete`.
 3. `every signup complete --org-name "<name>" [--description "<text>"] [--link <https url> ...] --yes` saves the confirmed profile and returns `account_ready: true`. Background setup (Business DNA and friends) is reported separately and never blocks the account. It is an ordinary write: `--yes` when non-interactive, never `--allow-destructive`.
 
 `every signup status` re-reads the state at any time. Signup commands always fetch a fresh tool list. A server without agent signup yields exit `6` with `error.code: "signup_unsupported"` ("this server does not support agent signup yet"). Denials and timeouts exit `3`; rerun `every signup`. While signup is unfinished, other tools are refused with `error.code: "signup_incomplete"`, and the CLI says which commands finish it. `EVERY_TOKEN` is never a signup path.
 
 The CLI sends the RFC 8707 `resource` parameter (the MCP server's canonical URL from its protected-resource metadata) on the authorization request, the code exchange and every refresh.
 
-After a successful `every signup` or `every login`, the CLI updates any copy of the `use-every` skill it installed earlier whose revision stamp is older than the bundled one. It never installs a copy where none exists and skips symlinked installs.
+### The skill after signup
+
+When an agent runs `every signup` (with `--json`, or without a TTY), nobody can answer an install prompt. The command therefore installs the bundled `use-every` skill itself, at user level, for each coding agent it detects that has no copy:
+
+| Agent | Detected by | Installed to |
+|-|-|-|
+| Claude Code | `~/.claude` | `~/.claude/skills/use-every/` |
+| Codex | `~/.codex` or `~/.agents` | `~/.agents/skills/use-every/` |
+
+This applies to new and existing accounts. A project or user copy that already exists is left as it is. The result is in `data.skill` on the last line: `installed`, `already_present` and `failed` (each a list of `{host, path}`), and `skipped_reason` (`opt_out`, `declined`, `no_agent_host`, `error` or `null`). An install failure prints a warning and never fails the signup. Pass `--no-skill` to skip the install. If you declined the interactive offer earlier, the command does not install either.
+
+At an interactive terminal, `every signup` and `every login` keep the prompt that offers a project-level install.
+
+After a successful `every signup` or `every login`, the CLI also updates any copy of the `use-every` skill it installed earlier whose revision stamp is older than the bundled one. The update skips symlinked installs.
 
 `every login` remains the interactive login for existing users; `every login --create-account` still works as a deprecated alias for `every signup`.
 
