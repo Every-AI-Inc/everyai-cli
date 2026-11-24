@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { approvalsUrlForBaseUrl, resolveBaseUrl } from '../lib/config.js';
 import { CliError } from '../lib/errors.js';
@@ -81,6 +81,8 @@ export interface OutreachEditOptions extends ToolExecutionOptions {
   bodyFile?: string;
   recipient?: string;
   thread?: string;
+  cc?: string[];
+  clearCc?: boolean;
   draftVersion?: string;
 }
 
@@ -378,22 +380,53 @@ async function readBody(opts: OutreachEditOptions): Promise<string | undefined> 
   }
 }
 
+export async function outreachDraftCommand(dealId: string, opts: ToolExecutionOptions & { channel?: string }): Promise<void> {
+  const args = { deal_id: requireId(dealId, '<deal_id>'), action: 'draft', ...(opts.channel ? { channel: opts.channel } : {}) };
+  await withApprovalLink(opts, () => executeToolCall('deal_outreach', opts, async () => args, undefined, { level: 'write' }));
+}
+
+// A name-based UUIDv8 keeps the same operation ID when a CLI process restarts after a timeout.
+function redraftOperationId(dealId: string, draftVersion: string, instruction: string): string {
+  const hash = createHash('sha256').update(JSON.stringify(['every-deal-redraft', dealId, draftVersion, instruction])).digest();
+  hash[6] = (hash[6] & 0x0f) | 0x80;
+  hash[8] = (hash[8] & 0x3f) | 0x80;
+  const hex = hash.toString('hex', 0, 16);
+  return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-');
+}
+
+export async function outreachRedraftCommand(dealId: string, opts: ToolExecutionOptions & {
+  draftVersion: string; instruction?: string; operationId?: string;
+}): Promise<void> {
+  const id = requireId(dealId, '<deal_id>');
+  const version = requireId(opts.draftVersion, '--draft-version');
+  const args = {
+    deal_id: id, action: 'redraft', draft_version: version, instruction: opts.instruction ?? '',
+    operation_id: opts.operationId ?? redraftOperationId(id, version, opts.instruction ?? ''),
+  };
+  await withApprovalLink(opts, () => executeToolCall('deal_outreach', opts, async () => args, undefined, { level: 'write' }));
+}
+
 export async function outreachEditCommand(dealId: string, opts: OutreachEditOptions = {}): Promise<void> {
   const id = requireId(dealId, '<deal_id>');
+  if (opts.cc && opts.clearCc) throw usage('Use --cc or --clear-cc, not both');
   const body = await readBody(opts);
   const changes: Record<string, unknown> = {};
   if (opts.subject !== undefined) changes.subject = opts.subject;
   if (body !== undefined) changes.body = body;
   if (opts.recipient !== undefined) changes.recipient = opts.recipient.trim();
   if (opts.thread !== undefined) changes.thread_id = opts.thread.trim();
+  if (opts.cc || opts.clearCc) changes.cc = opts.cc ?? [];
   if (Object.keys(changes).length === 0) {
-    throw usage('Nothing to change. Pass at least one of --subject, --body, --body-file, --recipient or --thread');
+    throw usage('Nothing to change. Pass at least one of --cc, --clear-cc, --subject, --body, --body-file, --recipient or --thread');
   }
   const draftVersion = nonEmpty(opts.draftVersion);
-  const args = { deal_id: id, action: 'edit', ...changes, ...(draftVersion ? { draft_version: draftVersion } : {}) };
+  const args = async () => ({
+    deal_id: id, action: 'edit', ...changes,
+    draft_version: draftVersion ?? (await readDraft(id, opts)).draft_version,
+  });
   // Edit changes only the stored draft: an ordinary write, as `deal move` is.
   await withApprovalLink(opts, () =>
-    executeToolCall('deal_outreach', opts, async () => args, undefined, { level: 'write' }));
+    executeToolCall('deal_outreach', opts, args, undefined, { level: 'write' }));
 }
 
 export async function outreachCancelCommand(dealId: string, opts: OutreachCancelOptions = {}): Promise<void> {
@@ -417,6 +450,8 @@ function viewBlock(structured: unknown, key: string): unknown {
 
 export interface OutreachPreview {
   channel: string;
+  delivery_mode: string | null;
+  cc_emails: string[] | null;
   to: string | null;
   subject: string | null;
   body: string | null;
@@ -427,6 +462,10 @@ export function outreachPreviewLines(preview: OutreachPreview): string {
   return [
     `Channel: ${preview.channel}`,
     `To: ${preview.to ?? 'the recipient on the draft'}`,
+    ...(preview.channel === 'email' ? [
+      `Delivery: ${preview.delivery_mode ?? 'unavailable'}`,
+      `Cc: ${preview.cc_emails === null ? 'unavailable' : preview.cc_emails.join(', ') || '(none)'}`,
+    ] : []),
     ...(preview.subject !== null ? [`Subject: ${preview.subject}`] : []),
     `Draft version: ${preview.draft_version}`,
     '',
@@ -450,6 +489,8 @@ async function readDraft(dealId: string, opts: ToolExecutionOptions): Promise<Ou
   const text = (key: string): string | null => (typeof fields[key] === 'string' ? fields[key] as string : null);
   return {
     channel: text('channel') ?? 'message',
+    delivery_mode: text('delivery_mode'),
+    cc_emails: Array.isArray(fields.cc_emails) && fields.cc_emails.every((v) => typeof v === 'string') ? fields.cc_emails : null,
     to: text('to') ?? text('profile_url') ?? text('recipient_name'),
     subject: text('subject'),
     body: text('body'),

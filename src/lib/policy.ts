@@ -224,7 +224,7 @@ function overrideClassification(name: string): Classification | undefined {
  */
 export function shortCommandNote(name: string): string | undefined {
   if (name === 'deal_outreach') {
-    return 'The short commands gate by action: `every deal outreach edit` and `every deal outreach cancel` are writes (--yes). ' +
+    return 'The short commands gate by action: draft, redraft, edit and cancel are writes (--yes). ' +
       '`every deal outreach send` is destructive (--yes --allow-destructive). `every tool call deal_outreach` stays destructive for every action.';
   }
   return undefined;

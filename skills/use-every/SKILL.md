@@ -2,7 +2,7 @@
 name: use-every
 description: Drive the Every AI CLI (`every`) to manage the user's service business — invoices, People, Companies, proposals, deals, pipeline, payments, services, custom fields, and scheduled tasks. Use when the user asks “who owes me money?”, wants a lead or deal follow-up, asks to sign up for Every, asks to look up, create, update, convert, or send a business record, mentions their Every workspace, or asks an agent to run their deals and prospects on a schedule.
 metadata:
-  every-skill-version: "8"
+  every-skill-version: "9"
 ---
 
 # Use Every
@@ -86,7 +86,9 @@ Each short command calls one tool, with the same `--json` envelope, exit codes a
 | `every deal create (--person-id <id> \| --company-id <id> \| --name <name> [--email <email>]) [--stage] [--deal-name] [--value] [--owner] [--goal]` | `create_deal` |
 | `every deal update <deal_id> [--name] [--value] [--owner] [--person-id \| --company-id] [--add-member <id>] [--remove-member <id>]` | `update_deal` |
 | `every deal list [--attention <reason>] [--stale-days <n>] [--owner <owner> \| --mine] [--since <time>] [--sort last_activity_at]` | `list_deals` |
-| `every deal outreach edit <deal_id> [--subject] [--body \| --body-file <path>] [--recipient <email>] [--thread <id\|new>]` | `deal_outreach` `action=edit` (write) |
+| `every deal outreach draft <deal_id> [--channel email\|linkedin\|instagram]` | `deal_outreach` `action=draft` (write) |
+| `every deal outreach redraft <deal_id> --draft-version <v> [--instruction <text>]` | `deal_outreach` `action=redraft` (write) |
+| `every deal outreach edit <deal_id> [--subject] [--body \| --body-file <path>] [--recipient <email>] [--thread <id\|new>] [--cc <email> ... \| --clear-cc] [--draft-version <v>]` | `deal_outreach` `action=edit` (write) |
 | `every deal outreach send <deal_id> [--draft-version <v>]` | `view_deal` draft, then `deal_outreach` `action=send` (destructive) |
 | `every deal outreach cancel <deal_id> --send-id <id>` | `deal_outreach` `action=cancel` (write) |
 | `every approvals [--all]` | `get_workspace_priorities` `pending_approvals` |
@@ -354,7 +356,7 @@ Find the deals that need work in one call per filter, with no per-deal poll:
 
 ## 4. Follow-ups
 
-1. Edit the deal's draft: `deal_outreach` with `action=edit`, `deal_id`, and the changed `subject`, `body`, `recipient` or `thread_id`. `recipient` must be an email address of a Person on the deal. `thread_id` is a Gmail thread of the deal, or `new` for a new email. A LinkedIn or Instagram draft has only a `body`. The result gives the new `draft_version`.
+1. To write a new message on the primary channel, run `every deal outreach draft`. To revise a saved message, read its `draft_version` and run `every deal outreach redraft` with that version and the owner's instruction. Repeat the identical redraft command to resume after a timeout. For a manual edit: `deal_outreach` with `action=edit`, `deal_id`, and the changed `subject`, `body`, `recipient`, `cc` or `thread_id`. Email edits require the version from the draft read. `recipient` must be an email address of a Person on the deal. `thread_id` is a Gmail thread of the deal, or `new` for a new email. A LinkedIn or Instagram draft has only a `body`. The result gives the new `draft_version`.
 2. Request the send: `deal_outreach` with `action=send`, `deal_id` and that `draft_version`, and nothing else. The send goes out on the draft's channel: email, LinkedIn direct message or Instagram direct message. Only the deal owner can send. It records on the plan step and on the timeline.
 3. Use `action=cancel` with `send_id` (from `view_deal` `auto_sends`) to stop a scheduled or held send. Every has no send at a time that you choose.
 4. If the tool refuses the channel (the owner's social account is not connected, or the channel has no integrated send), it returns the text. Put the text and the recipient in the run report for the owner to send by hand. After the owner confirms that it went out, record it with `log_deal_activity` (`completed_plan_action_id` set to the step id, `plan_action_outcome=completed`).

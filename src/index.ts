@@ -33,6 +33,8 @@ import {
   dealViewCommand,
   outreachCancelCommand,
   outreachEditCommand,
+  outreachDraftCommand,
+  outreachRedraftCommand,
   outreachSendCommand,
   personCreateCommand,
   personViewCommand,
@@ -618,9 +620,30 @@ withGlobalOptions(
 
 const outreachCommand = withToolExecutionOptions(
   withGlobalOptions(
-    dealCommand.command('outreach').description("Edit, send, or cancel a deal's message"),
+    dealCommand.command('outreach').description("Draft, redraft, edit, send, or cancel a deal's message"),
   ),
 );
+
+withGlobalOptions(withToolExecutionOptions(outreachCommand.command('draft')
+  .description("Write and save an unsent message on the deal's primary channel")
+  .argument('<deal_id>', 'deal id')
+  .option('--channel <channel>', 'use email, linkedin, or instagram instead of the primary channel'),
+)).action(async (dealId: string, _options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await outreachDraftCommand(dealId, { ...executionOptions(opts), channel: opts.channel });
+});
+
+withGlobalOptions(withToolExecutionOptions(outreachCommand.command('redraft')
+  .description('Rewrite the saved draft using optional instructions')
+  .argument('<deal_id>', 'deal id')
+  .requiredOption('--draft-version <v>', 'version from every deal view <deal_id> --draft')
+  .option('--instruction <text>', 'what to change in the message, audience, or email thread')
+  .option('--operation-id <uuid>', 'reuse an existing operation ID; identical commands use a stable ID automatically'),
+)).action(async (dealId: string, _options: unknown, command: Command) => {
+  const opts = command.optsWithGlobals();
+  await outreachRedraftCommand(dealId, { ...executionOptions(opts), draftVersion: opts.draftVersion,
+    instruction: opts.instruction, operationId: opts.operationId });
+});
 
 withGlobalOptions(
   withToolExecutionOptions(
@@ -632,8 +655,10 @@ withGlobalOptions(
       .option('--body <text>', 'new message text')
       .option('--body-file <path>', 'read the new message text from a file; - for stdin')
       .option('--recipient <email>', 'new email recipient: an email of a Person on the deal')
+      .option('--cc <email>', 'replace the email Cc list; repeat for each address', collectOption)
+      .option('--clear-cc', 'remove all copied recipients')
       .option('--thread <id>', 'Gmail thread of the deal to reply in, or "new"')
-      .option('--draft-version <v>', 'refuse the edit if the draft changed since this version'),
+      .option('--draft-version <v>', 'bind the edit to this version; otherwise read the current version first'),
   ),
 ).action(async (dealId: string, _options: unknown, command: Command) => {
   const opts = command.optsWithGlobals();
@@ -644,6 +669,8 @@ withGlobalOptions(
     bodyFile: opts.bodyFile,
     recipient: opts.recipient,
     thread: opts.thread,
+    cc: opts.cc,
+    clearCc: opts.clearCc,
     draftVersion: opts.draftVersion,
   });
 });

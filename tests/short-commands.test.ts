@@ -126,6 +126,14 @@ describe('short commands: argument mapping', () => {
       deal_id: 'deal_1', action: 'edit', subject: 'Next steps', body: 'Hi Pat', recipient: 'pat@example.test',
       thread_id: 'new', draft_version: 'dv1:old',
     } }]],
+    [['deal', 'outreach', 'draft', 'deal_1', '--yes'],
+      [{ name: 'deal_outreach', arguments: { deal_id: 'deal_1', action: 'draft' } }]],
+    [['deal', 'outreach', 'draft', 'deal_1', '--channel', 'instagram', '--yes'],
+      [{ name: 'deal_outreach', arguments: { deal_id: 'deal_1', action: 'draft', channel: 'instagram' } }]],
+    [['deal', 'outreach', 'edit', 'deal_1', '--cc', 'a@test.com', '--cc', 'b@test.com', '--draft-version', 'old', '--yes'],
+      [{ name: 'deal_outreach', arguments: { deal_id: 'deal_1', action: 'edit', cc: ['a@test.com', 'b@test.com'], draft_version: 'old' } }]],
+    [['deal', 'outreach', 'edit', 'deal_1', '--clear-cc', '--draft-version', 'old', '--yes'],
+      [{ name: 'deal_outreach', arguments: { deal_id: 'deal_1', action: 'edit', cc: [], draft_version: 'old' } }]],
     [['deal', 'outreach', 'cancel', 'deal_1', '--send-id', 'send_1', '--yes'],
       [{ name: 'deal_outreach', arguments: { deal_id: 'deal_1', action: 'cancel', send_id: 'send_1' } }]],
     [['deal', 'outreach', 'send', 'deal_1', '--draft-version', 'dv1:given', '--yes', '--allow-destructive'],
@@ -236,6 +244,7 @@ describe('short commands: argument mapping', () => {
     [['deal', 'create', '--yes'], '--person-id, --company-id, or --name'],
     [['deal', 'create', '--name', 'Pat', '--value', '-5', '--yes'], '--value'],
     [['deal', 'update', 'deal_1', '--yes'], 'Nothing to change'],
+    [['deal', 'outreach', 'edit', 'deal_1', '--clear-cc', '--cc', 'a@test.com', '--yes'], '--cc or --clear-cc'],
     [['deal', 'outreach', 'edit', 'deal_1', '--yes'], 'Nothing to change'],
     [['deal', 'outreach', 'edit', 'deal_1', '--body', 'a', '--body-file', 'b.txt', '--yes'], '--body or --body-file'],
     [['deal', 'list', '--attention', 'urgent'], '--attention'],
@@ -263,8 +272,9 @@ describe('short commands: argument mapping', () => {
         writeFileSync(file, 'Hi Pat,\n\nA longer message.\n');
         const result = await h.run(['deal', 'outreach', 'edit', 'deal_1', '--body-file', file, '--yes', '--json']);
         expect(result.code, result.stdout).toBe(0);
-        expect(h.toolCalls()).toEqual([{ name: 'deal_outreach', arguments: {
-          deal_id: 'deal_1', action: 'edit', body: 'Hi Pat,\n\nA longer message.\n',
+        expect(h.toolCalls()).toEqual([{ name: 'view_deal', arguments: { deal_id: 'deal_1', include: ['draft'] } },
+          { name: 'deal_outreach', arguments: {
+          deal_id: 'deal_1', action: 'edit', draft_version: 'dv1:mock-version', body: 'Hi Pat,\n\nA longer message.\n',
         } }]);
       } finally {
         await rm(dir, { recursive: true, force: true });
@@ -356,13 +366,26 @@ describe('company list output', () => {
 });
 
 describe('deal outreach safety tiers', () => {
+  it('binds a redraft retry to the original version, instruction and operation', async () => {
+    await withHarness(async (h) => {
+      const args = ['deal', 'outreach', 'redraft', 'd1', '--draft-version', 'v1', '--instruction', 'Make it private', '--yes'];
+      const first = await h.run(args);
+      const second = await h.run(args);
+      expect([first.code, second.code]).toEqual([0, 0]);
+      const [a, b] = h.toolCalls();
+      expect(a).toEqual(b);
+      expect(a.arguments).toEqual({ deal_id: 'd1', action: 'redraft', draft_version: 'v1',
+        instruction: 'Make it private', operation_id: expect.stringMatching(UUID) });
+    });
+  });
+
   it('runs edit and cancel with --yes alone (ordinary writes)', async () => {
     await withHarness(async (h) => {
       const edit = await h.run(['deal', 'outreach', 'edit', 'deal_1', '--body', 'Hi', '--yes', '--json']);
       expect(edit.code, edit.stdout).toBe(0);
       const cancel = await h.run(['deal', 'outreach', 'cancel', 'deal_1', '--send-id', 'send_1', '--yes', '--json']);
       expect(cancel.code, cancel.stdout).toBe(0);
-      expect(h.toolCalls().map((call) => call.arguments.action)).toEqual(['edit', 'cancel']);
+      expect(h.toolCalls().map((call) => call.name)).toEqual(['view_deal', 'deal_outreach', 'deal_outreach']);
     });
   });
 
@@ -418,7 +441,7 @@ describe('deal outreach send', () => {
         { name: 'view_deal', arguments: { deal_id: 'deal_1', include: ['draft'] } },
         { name: 'deal_outreach', arguments: { deal_id: 'deal_1', action: 'send', draft_version: 'dv1:mock-version' } },
       ]);
-      expect(result.stderr).toContain('Channel: email\nTo: pat@example.test\nSubject: Following up\nDraft version: dv1:mock-version\n\nHi Pat,\nChecking in on the proposal.\n');
+      expect(result.stderr).toContain('Channel: email\nTo: pat@example.test\nDelivery: reply_all\nCc: reviewer@example.test\nSubject: Following up\nDraft version: dv1:mock-version\n\nHi Pat,\nChecking in on the proposal.\n');
       expect(parseJsonStdout(result.stdout)).toMatchObject({
         ok: true,
         data: { tool: 'deal_outreach', preview: { channel: 'email', to: 'pat@example.test', draft_version: 'dv1:mock-version' } },

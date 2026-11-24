@@ -74,6 +74,8 @@ const mockStages = [
 const mockDraft = {
   channel: 'email',
   action_id: 'step-1',
+  delivery_mode: 'reply_all',
+  cc_emails: ['reviewer@example.test'],
   to: 'pat@example.test',
   subject: 'Following up',
   body: 'Hi Pat,\nChecking in on the proposal.',

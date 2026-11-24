@@ -84,7 +84,7 @@ export function conventionsBlock(): string {
     '  destructive: requires typed confirmation interactively or --yes --allow-destructive non-interactively',
     '  ai-mediated: server-enforced read-only, but gated because it routes through Every AI; prefer deterministic tools',
     '  human approval: never auto-retries; approve in Every, then re-run the identical command',
-    '  short commands gate by action: deal outreach edit and cancel are writes, deal outreach send is destructive',
+    '  short commands gate by action: deal outreach draft, redraft, edit and cancel are writes, deal outreach send is destructive',
     '  (every tool call deal_outreach stays destructive for every action)',
     '',
     'Short commands:',
