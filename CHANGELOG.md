@@ -1,5 +1,11 @@
 # @everyai/cli
 
+## 0.12.0
+
+### Minor Changes
+
+- 3d221c3: Draft or redraft deal messages on their primary channel. Edit copied email recipients and show them in the send preview.
+
 ## 0.11.0
 
 ### Minor Changes
